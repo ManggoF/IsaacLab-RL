@@ -93,7 +93,7 @@ class CommandsCfg:
         asset_name="robot",
         body_name=MISSING,  # will be set by agent env cfg
         resampling_time_range=(5.0, 5.0),
-        debug_vis=False,
+        debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
@@ -148,16 +148,16 @@ class EventCfg:
         },
     )
 
-    move_object = EventTerm(
-        func=mdp.continuous_move,
-        mode="interval",
-        interval_range_s=(0.01, 0.01),
-        params={
-            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
-            "speed_range": (0.3, 0.3),
-            "threshold_steps": 40,
-        },
-    )
+    # move_object = EventTerm(
+    #     func=mdp.continuous_move,
+    #     mode="interval",
+    #     interval_range_s=(0.01, 0.01),
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+    #         "speed_range": (0.3, 0.3),
+    #         "threshold_steps": 40,
+    #     },
+    # )
 
     # # Declare the type of movement for the object and velocity.
     # move_object = EventTerm(
@@ -180,7 +180,7 @@ class RewardsCfg:
 
     reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=7.0)  ## .25
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=25.0)
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.03}, weight=30.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,

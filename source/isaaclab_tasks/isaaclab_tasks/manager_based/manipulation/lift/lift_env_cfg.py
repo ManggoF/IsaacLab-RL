@@ -142,8 +142,8 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
-            "velocity_range": {},
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
+            "velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "asset_cfg": SceneEntityCfg("object", body_names="Object"),
         },
     )
@@ -159,19 +159,19 @@ class EventCfg:
         },
     )
 
-    # Declare the type of movement for the object and velocity.
-    move_object = EventTerm(
-        func=mdp.continuous_move,
-        mode="interval",
-        interval_range_s=(0.01, 0.01),
-        params={
-            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
-            "speed_range": (0.3, 0.3),
-            "threshold_steps": 40,
-            "motion_type": "sin",     
-            "period": 20,
-        },
-    )
+    # # Declare the type of movement for the object and velocity.
+    # move_object = EventTerm(
+    #     func=mdp.continuous_move,
+    #     mode="interval",
+    #     interval_range_s=(0.01, 0.01),
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+    #         "speed_range": (0.3, 0.3),
+    #         "threshold_steps": 40,
+    #         "motion_type": "sin",     
+    #         "period": 20,
+    #     },
+    # )
 
 
 @configclass
@@ -180,7 +180,7 @@ class RewardsCfg:
 
     reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=7.0)  ## .25
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=15.0)
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=25.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,

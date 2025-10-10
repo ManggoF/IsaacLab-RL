@@ -19,7 +19,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 
 from . import mdp
 
@@ -39,24 +39,41 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING
     # end-effector sensor: will be populated by agent env cfg
     ee_frame: FrameTransformerCfg = MISSING
+    # 加入目标坐标系的可视化
+    object_frame: FrameTransformerCfg = MISSING
+    world_frame: FrameTransformerCfg = MISSING
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
 
     # Table
+    # table = AssetBaseCfg(
+    #     prim_path="{ENV_REGEX_NS}/Table",
+    #     init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, 0], rot=[0.707, 0, 0, 0.707]),
+    #     spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
+    # )
+
+    # # plane
+    # plane = AssetBaseCfg(
+    #     prim_path="/World/GroundPlane",
+    #     init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, -1.05]),
+    #     spawn=GroundPlaneCfg(),
+    # )
+
+    # # lights
+    # light = AssetBaseCfg(
+    #     prim_path="/World/light",
+    #     spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
+    # )
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, 0], rot=[0.707, 0, 0, 0.707]),
-        spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, -0.63]),
+        spawn=UsdFileCfg(usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Robots/UniversalRobots/UR5/table.usd",)
     )
-
-    # plane
     plane = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, -1.05]),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, -0.63]),
         spawn=GroundPlaneCfg(),
     )
-
-    # lights
     light = AssetBaseCfg(
         prim_path="/World/light",
         spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
@@ -76,7 +93,7 @@ class CommandsCfg:
         asset_name="robot",
         body_name=MISSING,  # will be set by agent env cfg
         resampling_time_range=(5.0, 5.0),
-        debug_vis=True,
+        debug_vis=False,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
@@ -114,6 +131,7 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
 
 
+
 @configclass
 class EventCfg:
     """Configuration for events."""
@@ -124,9 +142,34 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+        },
+    )
+
+    move_object = EventTerm(
+        func=mdp.continuous_move,
+        mode="interval",
+        interval_range_s=(0.01, 0.01),
+        params={
+            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+            "speed_range": (0.3, 0.3),
+            "threshold_steps": 40,
+        },
+    )
+
+    # Declare the type of movement for the object and velocity.
+    move_object = EventTerm(
+        func=mdp.continuous_move,
+        mode="interval",
+        interval_range_s=(0.01, 0.01),
+        params={
+            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+            "speed_range": (0.3, 0.3),
+            "threshold_steps": 40,
+            "motion_type": "sin",     
+            "period": 20,
         },
     )
 
@@ -135,7 +178,7 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.1}, weight=10.0)
+    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=7.0)  ## .25
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=15.0)
 
@@ -152,11 +195,11 @@ class RewardsCfg:
     )
 
     # action penalty
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-1e-4)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-3e-5)  #-2e-5
 
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-1e-4,
+        weight=-1e-5,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
@@ -177,11 +220,11 @@ class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
     action_rate = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000}
+        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -3e-4, "num_steps": 200000}
     )
 
     joint_vel = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000}
+        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-4, "num_steps": 200000}
     )
 
 
@@ -210,12 +253,12 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 2
-        self.episode_length_s = 5.0
+        self.episode_length_s = 10.0
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
 
-        self.sim.physx.bounce_threshold_velocity = 0.2
+        # self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024

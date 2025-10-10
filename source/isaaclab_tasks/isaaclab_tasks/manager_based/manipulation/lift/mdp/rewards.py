@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
+from isaaclab.assets.articulation.articulation import Articulation
 import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import FrameTransformer
-from isaaclab.utils.math import combine_frame_transforms
+from isaaclab.utils.math import combine_frame_transforms, quat_apply
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -43,6 +44,47 @@ def object_ee_distance(
     object_ee_distance = torch.norm(cube_pos_w - ee_w, dim=1)
 
     return 1 - torch.tanh(object_ee_distance / std)
+
+def ee_height_penalty(
+    env: ManagerBasedRLEnv,
+    minimal_height: float,
+    tcp_offset: tuple[float, float, float],
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    ee_body_name: str = "wrist_3_link",
+) -> torch.Tensor:
+    """
+    Penalizes the robot's tool-center-point (TCP) for being below a certain height.
+    """
+    # 1. 从场景中获取机器人对象
+    robot = env.scene[robot_cfg.name]
+
+    # 2. 获取末端执行器连杆在世界坐标系下的位姿
+    ee_link_pos_w = robot.data.body_pos_w[:, robot.body_names.index(ee_body_name)]
+    ee_link_quat_w = robot.data.body_quat_w[:, robot.body_names.index(ee_body_name)]
+
+    # 3. 计算工具中心点(TCP)在世界坐标系下的位置
+    
+    # [修正] 创建一个形状为 (num_envs, 3) 的偏移向量批次
+    # a. 先创建一个单独的向量
+    tcp_offset_tensor = torch.tensor(tcp_offset, device=env.device)
+    # b. 使用 .expand() 将其扩展到与环境数量匹配的批次，这非常高效
+    tcp_offset_batch = tcp_offset_tensor.expand(env.num_envs, -1)
+
+    # c. 现在，quat_apply 的两个输入维度完全匹配:
+    #    ee_link_quat_w: (4096, 4)
+    #    tcp_offset_batch: (4096, 3)
+    offset_w = quat_apply(ee_link_quat_w, tcp_offset_batch)
+    
+    # d. 将世界坐标系下的偏移量加到连杆的位置上
+    tcp_pos_w = ee_link_pos_w + offset_w
+
+    # 4. 提取TCP的高度
+    tcp_height = tcp_pos_w[:, 2]
+
+    # 5. 计算并返回惩罚
+    penalty = torch.where(tcp_height < minimal_height, minimal_height - tcp_height, 0.0)
+    return penalty
+
 
 
 def object_goal_distance(

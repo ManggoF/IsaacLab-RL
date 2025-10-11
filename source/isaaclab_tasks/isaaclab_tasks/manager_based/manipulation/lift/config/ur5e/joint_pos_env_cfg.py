@@ -15,6 +15,9 @@ from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
+from isaaclab.sim.spawners.shapes.shapes_cfg import CylinderCfg
+from isaaclab.sim.spawners.materials import RigidBodyMaterialCfg
+from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
@@ -35,6 +38,7 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
 
         # Set UR5e as robot - Using high PD for better IK tracking
         self.scene.robot = UR5_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        
 
         # Set actions for the specific robot type (ur5e) - Using Differential IK
         # self.actions.arm_action = DifferentialInverseKinematicsActionCfg(
@@ -109,12 +113,14 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
         #         ),
         #     ),
         # )
+        # 设置Cube作为要抓取的物体
         self.scene.object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.01], rot=[1.0, 0.0, 0.0, 0.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.03], rot=[1, 0, 0, 0]),
             spawn=UsdFileCfg(
+                # usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Shapes/cylinder.usd",
                 usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Shapes/cylinder_instance.usd",
-                scale=(0.8, 0.8, 0.8),
+                scale=(0.1, 0.1, 0.1),
                 rigid_props=RigidBodyPropertiesCfg(
                     solver_position_iteration_count=16,
                     solver_velocity_iteration_count=1,
@@ -122,10 +128,11 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
                     max_linear_velocity=1000.0,
                     max_depenetration_velocity=5.0,
                     disable_gravity=False,
-                    kinematic_enabled=False,
                 ),
             ),
         )
+        
+
 
     
         marker_cfg = FRAME_MARKER_CFG.copy()
@@ -148,12 +155,12 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
         object_marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
         object_marker_cfg.prim_path = "/Visuals/ObjectMarker"
         self.scene.object_frame = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Object",  
+            prim_path="{ENV_REGEX_NS}/Object/Object",  
             debug_vis=True,
             visualizer_cfg=object_marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Object",
+                    prim_path="{ENV_REGEX_NS}/Object/Object",
                     name="object_frame",
                     offset=OffsetCfg(pos=[0.0, 0.0, 0.0]),
                 ),
@@ -188,3 +195,4 @@ class UR5eCubeLiftEnvCfg_PLAY(UR5eCubeLiftEnvCfg):
         self.scene.env_spacing = 2.5
         # disable randomization for play
         self.observations.policy.enable_corruption = False
+        

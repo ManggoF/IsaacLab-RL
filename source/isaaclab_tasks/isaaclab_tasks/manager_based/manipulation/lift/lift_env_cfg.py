@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import MISSING
+import math
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, DeformableObjectCfg, RigidObjectCfg
@@ -17,7 +18,12 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
+from isaaclab.sim.schemas.schemas_cfg import CollisionPropertiesCfg, MassPropertiesCfg, RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
+from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
+from isaaclab.sim.spawners.shapes.shapes_cfg import CuboidCfg
+
+
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 
@@ -64,6 +70,49 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     #     prim_path="/World/light",
     #     spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
     # )
+    # 为每一个环境创建一个独立的、看不见的、光滑的刚体盒子
+    # conveyor_surface = RigidObjectCfg(
+    #     # 关键1: 使用 {ENV_REGEX_NS}，确保每个环境都有自己的传送带
+    #     prim_path="{ENV_REGEX_NS}/ConveyorSurface",
+        
+    #     # 关键2: 使用 RigidObjectCfg 专属的 InitialStateCfg
+    #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.7, 0, 0.0],lin_vel=[0.0, 0.0, 0.0],), 
+    #     spawn=CuboidCfg(
+    #         size=(1, 1, 0.01),
+    #         rigid_props=RigidBodyPropertiesCfg(kinematic_enabled=False,disable_gravity=True),
+    #         mass_props=MassPropertiesCfg(mass=100.0),
+    #         collision_props=CollisionPropertiesCfg(collision_enabled=True),
+    #         physics_material=RigidBodyMaterialCfg(
+    #             static_friction=0.8,
+    #             dynamic_friction=0.5,
+    #             restitution=0.0,
+    #         ),
+    #         # 关键3: 使用唯一正确的 "visible" 参数来实现隐形
+    #         visible=True,
+    #     ),
+    # )
+    # -- 定义传送带平面 --
+    conveyor_surface = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/ConveyorSurface",
+        init_state=RigidObjectCfg.InitialStateCfg(pos=[0.7, 0, 0.0]),
+        spawn=CuboidCfg(
+            size=(1.0, 1.0, 0.01),
+            # 物理材质保持不变
+            physics_material=RigidBodyMaterialCfg(
+                static_friction=0.0,
+                dynamic_friction=0.0,
+                restitution=0.0,
+            ),
+            # [关键] 将物体设置为运动学模式
+            rigid_props=RigidBodyPropertiesCfg(
+                # 启用运动学模式，这将使其不受外力影响
+                kinematic_enabled=True,
+                # 通常运动学物体不需要重力
+                disable_gravity=True, 
+            ),
+        ),
+    )
+
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, -0.63]),
@@ -142,9 +191,9 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.25, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
-            "asset_cfg": SceneEntityCfg("object", body_names="Object"),
+            "asset_cfg": SceneEntityCfg("object", body_names="Object"),  # 修改为圆柱体
         },
     )
 
@@ -154,8 +203,8 @@ class EventCfg:
     #     interval_range_s=(0.01, 0.01),
     #     params={
     #         "asset_cfg": SceneEntityCfg("object", body_names="Object"),
-    #         "speed_range": (0.3, 0.3),
-    #         "threshold_steps": 40,
+    #         "speed_range": (0.2, 0.2),
+    #         "threshold_steps": 80,
     #     },
     # )
 
@@ -178,19 +227,60 @@ class EventCfg:
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=7.0)  ## .25
+    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=5.0)  ## .25
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.03}, weight=30.0)
+    # grasp_incentive = RewTerm(
+    #     func=mdp.encourage_grasp_at_target,
+    #     weight=10.0, # 权重为正，因为函数内部返回的是-1.0，最终惩罚是-10
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         # [重要] 确保这里的TCP定义与你的IK控制器(如果使用)或ee_frame一致
+    #         "tcp_offset": (0.0, 0.0, 0.0), # 示例值
+    #         "ee_body_name": "gripper_link",
+    #         # 定义“足够近”的距离阈值 (m)
+    #         # 应该比你的夹爪张开时的一半宽度略大
+    #         "distance_threshold": 0.05,
+    #     }
+    # )
+    
+    grasping_cylinder = RewTerm(
+    func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
+    weight=50.0,
+    params={
+        "robot_cfg": SceneEntityCfg("robot"),
+        "object_cfg": SceneEntityCfg("object"),
+        "left_finger_body_name": "robotiq_85_left_finger_tip_link",
+        "right_finger_body_name": "robotiq_85_right_finger_tip_link",
+        "gripper_joint_names": [
+            "robotiq_85_left_knuckle_joint",
+            "robotiq_85_right_knuckle_joint"
+        ],
+        # [关键] 定义“半开合”的范围，这需要你通过实验来精确测量
+        "open_angle_threshold": math.radians(10.0),
+        "close_angle_threshold": math.radians(35.0),
+        
+        # [关键] 定义三维空间中的接近阈值 (m)
+        # 这个值应该比你的夹爪内部宽度略大
+        "grasp_distance_threshold": 0.03,
+
+        # [关键] 定义TCP和物体的高度差阈值 (m)
+        # 一个非常小的值，表示物体正被夹爪的中心“托住”
+        "height_difference_threshold": 0.005, # 5毫米
+    },
+)
+
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.03}, weight=100.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},
+        params={"std": 0.3, "minimal_height": 0.03, "command_name": "object_pose"},
         weight=16.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.05, "minimal_height": 0.04, "command_name": "object_pose"},
+        params={"std": 0.05, "minimal_height": 0.03, "command_name": "object_pose"},
         weight=5.0,
     )
 
@@ -211,7 +301,7 @@ class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
     object_dropping = DoneTerm(
-        func=mdp.root_height_below_minimum, params={"minimum_height": -0.05, "asset_cfg": SceneEntityCfg("object")}
+        func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
     )
 
 

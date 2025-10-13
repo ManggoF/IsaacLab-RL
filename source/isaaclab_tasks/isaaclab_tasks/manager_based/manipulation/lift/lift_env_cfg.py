@@ -197,6 +197,24 @@ class EventCfg:
         },
     )
 
+    move_object_smartly = EventTerm(
+        func=mdp.move_object_unless_lifted, # <<--- 使用新的、基于高度的函数
+        mode="interval",
+        # 为了每一步都执行，将最小和最大间隔都设置为环境的步长时间
+        # 假设你的 sim.dt=0.01, decimation=2, 那么 env.step_dt = 0.02
+        interval_range_s=(0.02, 0.02),
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            "speed_range": (0.2, 0.2),
+            "threshold_steps": 80,
+            # [关键] 设置一个判断“被举起”的高度阈值 (m)
+            # 这个值应该比物体在传送带上的高度略高一点
+            # 例如，如果物体在传送带上时高度是0.03m
+            "lift_height_threshold": 0.04, 
+        },
+    )
+    
+
     # move_object = EventTerm(
     #     func=mdp.continuous_move,
     #     mode="interval",

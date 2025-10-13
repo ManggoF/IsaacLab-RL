@@ -75,6 +75,57 @@ def continuous_move(env, valid_env_ids, *, asset_cfg, speed=None, speed_range=No
         env._move_speed[flip] = -env._move_speed[flip]
         env._move_counter[flip] = 0
 
+def move_object_unless_lifted(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    *,
+    asset_cfg: SceneEntityCfg,
+    speed_range: tuple[float, float],
+    threshold_steps: int,
+    lift_height_threshold: float,
+):
+    """
+    Moves the object, but stops moving it if its height exceeds a threshold.
+    This version is corrected to follow the exact API usage of write_root_velocity_to_sim.
+    """
+    # -- 1. 初始化或更新往返运动的状态 (逻辑不变)
+    if not hasattr(env, "_smart_move_counter"):
+        env._smart_move_counter = torch.zeros(env.num_envs, dtype=torch.int32, device=env.device)
+        low, high = speed_range
+        env._smart_move_speed = torch.empty(env.num_envs, device=env.device).uniform_(low, high)
+        env._smart_move_thresh = threshold_steps
+
+    # 只更新需要更新的环境的计数器和方向
+    env._smart_move_counter[env_ids] += 1
+    flip_mask = env._smart_move_counter[env_ids] >= env._smart_move_thresh
+    envs_to_flip = env_ids[flip_mask]
+    if len(envs_to_flip) > 0:
+        env._smart_move_speed[envs_to_flip] *= -1.0
+        env._smart_move_counter[envs_to_flip] = 0
+
+    # -- 2. 判断所有环境中，哪些物体当前正被举起
+    obj: RigidObject = env.scene[asset_cfg.name]
+    object_heights = obj.data.root_pos_w[:, 2]
+    is_lifted = object_heights > lift_height_threshold
+
+    # -- 3. [核心修正] 准备一个包含 *所有环境* 速度的完整张量
+    # a. 获取所有环境的当前速度
+    current_lin_vel = obj.data.root_lin_vel_w.clone()
+    current_ang_vel = obj.data.root_ang_vel_w.clone()
+
+    # b. 找出那些“没有被举起”的环境
+    not_lifted_mask = ~is_lifted
+    # 将这些环境的Y轴速度，设置为它们的预设移动速度
+    current_lin_vel[not_lifted_mask, 1] = env._smart_move_speed[not_lifted_mask]
+    
+    # c. 将那些“已经被举起”的环境的Y轴速度，明确地设置为0
+    #    这确保了它们在被举起后，不会再受到这个事件函数的干扰
+    current_lin_vel[is_lifted, 1] = 0.0
+    
+    # -- 4. [核心修正] 调用正确的API
+    # 将我们刚刚构建好的、包含了所有环境最终速度的完整张量传递进去
+    obj.write_root_velocity_to_sim(torch.cat([current_lin_vel, current_ang_vel], dim=1))
+
 # def continuous_move(env, valid_env_ids, *, asset_cfg, speed=None, speed_range=None, threshold_steps=40, height_threshold=0.05):
 #     # lazy init
 #     if not hasattr(env, "_move_counter"):

@@ -15,6 +15,12 @@ from isaaclab.app import AppLauncher
 # local imports
 import cli_args  # isort: skip
 
+# import debugpy
+# debugpy.listen(5678)
+# print("Waiting for debugger to attach...")
+# debugpy.wait_for_client()
+# print("Debugger attached!")
+
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")

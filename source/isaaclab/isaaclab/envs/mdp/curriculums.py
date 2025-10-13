@@ -45,6 +45,67 @@ class modify_reward_weight(ManagerTermBase):
             env.reward_manager.set_term_cfg(term_name, self._term_cfg)
 
         return self._term_cfg.weight
+    
+class modify_reward_weight_linearly(ManagerTermBase):
+    """
+    Curriculum that linearly interpolates the reward weight over a specified range of steps.
+
+    This function smoothly changes the weight of a reward term from a starting value to an
+    ending value over a defined number of environment steps.
+    """
+
+    def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRLEnv):
+        """Initializes the curriculum term."""
+        super().__init__(cfg, env)
+
+        # 获取需要修改的奖励项的配置
+        term_name = cfg.params["term_name"]
+        self._term_cfg = env.reward_manager.get_term_cfg(term_name)
+        
+        # [新增] 存储初始权重，以备将来需要
+        self._initial_weight = self._term_cfg.weight
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        term_name: str,
+        start_weight: float,
+        end_weight: float,
+        start_step: int,
+        end_step: int,
+    ) -> float:
+        """
+        Linearly modifies the reward weight based on the current environment step count.
+        """
+        # 获取当前的总步数
+        current_step = env.common_step_counter
+        if current_step > 0 and (current_step % 500) == 0:
+        # 使用 carb.log_info 来打印信息，这是Isaac Sim的标准日志方式
+        # 这样打印出来的信息会带有时间戳和[INFO]前缀，很规范
+            print(f"======> Training Progress: Reached step {current_step} <======")
+
+        # -- [核心逻辑] --
+        
+        # 1. 在开始步之前，保持起始权重
+        if current_step < start_step:
+            new_weight = start_weight
+        # 2. 在结束步之后，保持结束权重
+        elif current_step > end_step:
+            new_weight = end_weight
+        # 3. 在衰减区间内，进行线性插值
+        else:
+            # 计算当前在衰减区间的进度 (一个0到1之间的小数)
+            progress = (current_step - start_step) / (end_step - start_step)
+            # 线性插值公式: new = start + progress * (end - start)
+            new_weight = start_weight + progress * (end_weight - start_weight)
+
+        # -- 应用新的权重 --
+        self._term_cfg.weight = new_weight
+        env.reward_manager.set_term_cfg(term_name, self._term_cfg)
+
+        # 返回当前权重值，方便调试和记录
+        return self._term_cfg.weight
 
 
 class modify_env_param(ManagerTermBase):

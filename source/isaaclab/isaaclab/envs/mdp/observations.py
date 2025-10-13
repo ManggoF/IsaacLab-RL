@@ -673,7 +673,13 @@ def generated_commands(env: ManagerBasedRLEnv, command_name: str | None = None) 
     """The generated command from command term in the command manager with the given name."""
     return env.command_manager.get_command(command_name)
 
-
+@generic_io_descriptor(dtype=torch.float32, observation_type="Command", on_inspect=[record_shape])
+def generated_command_position(env: ManagerBasedRLEnv, command_name: str | None = None) -> torch.Tensor:
+    """Returns only the position part of the desired command."""
+    # 获取完整的命令
+    full_command = env.command_manager.get_command(command_name)
+    # 只返回前3个元素 (x, y, z)
+    return full_command[:, :3]
 """
 Time.
 """

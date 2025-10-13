@@ -138,13 +138,22 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
 class CommandsCfg:
     """Command terms for the MDP."""
 
+    # object_pose = mdp.UniformPoseCommandCfg(
+    #     asset_name="robot",
+    #     body_name=MISSING,  # will be set by agent env cfg
+    #     resampling_time_range=(5.0, 5.0),
+    #     debug_vis=True,
+    #     ranges=mdp.UniformPoseCommandCfg.Ranges(
+    #         pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+    #     ),
+    # )
     object_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
         body_name=MISSING,  # will be set by agent env cfg
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.4, 0.6), pos_y=(-0.25, 0.25), pos_z=(0.25, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.5, 0.5), pos_y=(0.0, 0.0), pos_z=(0.35, 0.35), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
 
@@ -169,7 +178,9 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
         object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
-        target_object_position = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
+        # target_object_position = ObsTerm(func=mdp.generated_commands, params={"command_name": "object_pose"})
+        # 修改这一行，让智能体只能“看到”目标位置
+        target_object_position = ObsTerm(func=mdp.generated_command_position, params={"command_name": "object_pose"})
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -327,12 +338,36 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
+    fade_out_lifting_reward = CurrTerm(
+        func=mdp.modify_reward_weight_linearly, # <<--- 使用我们新的平滑函数
+        params={
+            "term_name": "lifting_object",
+            "start_weight":100.0,  # 衰减前的权重
+            "end_weight": 15.0,     # 衰减后的权重
+            # 定义衰减过程的起止步数
+            # 总步数约75000(iteration=103时，step=2500 )
+            "start_step": 15000,
+            "end_step": 40000,
+        }
+    )
+
+    target_tracking_reward = CurrTerm(
+        func=mdp.modify_reward_weight_linearly,
+        params={
+            "term_name": "object_goal_tracking",
+            "start_weight": 16.0,
+            "end_weight": 88.0,
+            "start_step": 10000,
+            "end_step": 70000,
+        }
+    )
+
     action_rate = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -3e-4, "num_steps": 200000}
+        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -3e-4, "num_steps": 20000}
     )
 
     joint_vel = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-4, "num_steps": 200000}
+        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-4, "num_steps": 20000}
     )
 
 

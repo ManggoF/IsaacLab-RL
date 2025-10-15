@@ -153,7 +153,7 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.5, 0.5), pos_y=(0.0, 0.0), pos_z=(0.35, 0.35), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.6, 0.6), pos_y=(0.0, 0.0), pos_z=(0.35, 0.35), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
 
@@ -357,18 +357,43 @@ class CurriculumCfg:
             "term_name": "object_goal_tracking",
             "start_weight": 16.0,
             "end_weight": 88.0,
-            "start_step": 10000,
+            "start_step": 20000,
             "end_step": 70000,
         }
     )
 
-    action_rate = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -3e-4, "num_steps": 20000}
+    target_fine_tracking_reward = CurrTerm(
+        func=mdp.modify_reward_weight_linearly,
+        params={
+            "term_name": "object_goal_tracking_fine_grained",
+            "start_weight": 5.0,
+            "end_weight": 80.0,
+            "start_step": 50000,
+            "end_step": 70000,
+        }
     )
 
-    joint_vel = CurrTerm(
-        func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-4, "num_steps": 20000}
-    )
+    # action_rate = CurrTerm(
+    #     func=mdp.modify_reward_weight_linearly, 
+    #     params={
+    #         "term_name": "action_rate",                                         
+    #         "start_weight": -3e-5,
+    #         "end_weight": -0.1,
+    #         "start_step": 30000,
+    #         "end_step": 70000,
+    #     }
+    # )
+
+    # joint_vel = CurrTerm(
+    #     func=mdp.modify_reward_weight_linearly, 
+    #     params={
+    #         "term_name": "joint_vel", 
+    #         "start_weight": -1e-5, 
+    #         "end_weight": -0.1,
+    #         "start_step": 30000,
+    #         "end_step": 70000,
+    #     }
+    # )
 
 
 ##

@@ -59,10 +59,11 @@ For detailed Isaac Sim installation instructions, please refer to
 
     ```
     # Option 1: Default environment name 'env_isaaclab'
-./isaaclab.sh --conda  # or "./isaaclab.sh -c"
+    ./isaaclab.sh --conda  # or "./isaaclab.sh -c"
     # Option 2: Custom name
-./isaaclab.sh --conda my_env  # or "./isaaclab.sh -c my_env"
+    ./isaaclab.sh --conda my_env  # or "./isaaclab.sh -c my_env"
     ```
+    
     vscode配置 ：
     
     ```

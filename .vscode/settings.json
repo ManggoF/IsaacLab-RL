@@ -80,7 +80,7 @@
     // Python environment path
     // note: the default interpreter is overridden when user selects a workspace interpreter
     //     in the status bar. For example, the virtual environment python interpreter
-    "python.defaultInterpreterPath": "/home/xry/anaconda3/bin/python",
+    "python.defaultInterpreterPath": "/home/xry/anaconda3/envs/labrl/bin/python",
     // ROS distribution
     "ros.distro": "noetic",
     // Language specific settings

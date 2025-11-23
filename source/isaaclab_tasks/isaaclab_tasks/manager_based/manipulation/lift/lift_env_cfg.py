@@ -153,7 +153,7 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.6, 0.6), pos_y=(0.0, 0.0), pos_z=(0.35, 0.35), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.5, 0.6), pos_y=(-0.2, 0.2), pos_z=(0.3, 0.3), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
 
@@ -216,7 +216,7 @@ class EventCfg:
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.2, 0.2),
+            "speed_range": (0.3, 0.3),
             "threshold_steps": 80,
             # [关键] 设置一个判断“被举起”的高度阈值 (m)
             # 这个值应该比物体在传送带上的高度略高一点
@@ -273,31 +273,31 @@ class RewardsCfg:
     #     }
     # )
     
-    grasping_cylinder = RewTerm(
-    func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
-    weight=50.0,
-    params={
-        "robot_cfg": SceneEntityCfg("robot"),
-        "object_cfg": SceneEntityCfg("object"),
-        "left_finger_body_name": "robotiq_85_left_finger_tip_link",
-        "right_finger_body_name": "robotiq_85_right_finger_tip_link",
-        "gripper_joint_names": [
-            "robotiq_85_left_knuckle_joint",
-            "robotiq_85_right_knuckle_joint"
-        ],
-        # [关键] 定义“半开合”的范围，这需要你通过实验来精确测量
-        "open_angle_threshold": math.radians(10.0),
-        "close_angle_threshold": math.radians(35.0),
+#     grasping_cylinder = RewTerm(
+#     func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
+#     weight=50.0,
+#     params={
+#         "robot_cfg": SceneEntityCfg("robot"),
+#         "object_cfg": SceneEntityCfg("object"),
+#         "left_finger_body_name": "robotiq_85_left_finger_tip_link",
+#         "right_finger_body_name": "robotiq_85_right_finger_tip_link",
+#         "gripper_joint_names": [
+#             "robotiq_85_left_knuckle_joint",
+#             "robotiq_85_right_knuckle_joint"
+#         ],
+#         # [关键] 定义“半开合”的范围，这需要你通过实验来精确测量
+#         "open_angle_threshold": math.radians(10.0),
+#         "close_angle_threshold": math.radians(35.0),
         
-        # [关键] 定义三维空间中的接近阈值 (m)
-        # 这个值应该比你的夹爪内部宽度略大
-        "grasp_distance_threshold": 0.03,
+#         # [关键] 定义三维空间中的接近阈值 (m)
+#         # 这个值应该比你的夹爪内部宽度略大
+#         "grasp_distance_threshold": 0.03,
 
-        # [关键] 定义TCP和物体的高度差阈值 (m)
-        # 一个非常小的值，表示物体正被夹爪的中心“托住”
-        "height_difference_threshold": 0.005, # 5毫米
-    },
-)
+#         # [关键] 定义TCP和物体的高度差阈值 (m)
+#         # 一个非常小的值，表示物体正被夹爪的中心“托住”
+#         "height_difference_threshold": 0.005, # 5毫米
+#     },
+# )
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.03}, weight=100.0)
 
@@ -322,6 +322,46 @@ class RewardsCfg:
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
+    # # --- [新增] 论文中的两个动态抓取奖励 ---
+
+    # # 1. 预测拦截奖励 (Predictive Interception Reward)
+    # # 作用：鼓励机器人去抓物体 "0.2秒后" 会出现的位置，而不是当前位置
+    # predictive_interception = RewTerm(
+    #     func=mdp.reward_predictive_interception, # 请确保导入了这个函数
+    #     weight=0.0, # 权重 w_p
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         # [设置] 您的末端执行器Link名称，通常是夹爪中心或法兰盘
+    #         "ee_body_name": "gripper_link",
+            
+    #         # [参数] dt: 预判时间窗口。如果传送带很快，这个值可以大一点 (e.g., 0.2 - 0.5)
+    #         "dt": 0.1, 
+            
+    #         # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
+    #         "alpha": 10.0, 
+    #     }
+    # )
+
+    # # # 2. 速度匹配奖励 (Velocity Matching Reward)
+    # # # 作用：鼓励机器人在接触物体前，速度与物体保持一致
+    # velocity_matching = RewTerm(
+    #     func=mdp.reward_velocity_matching, # 请确保导入了这个函数
+    #     weight=0.0, # 权重 w_v
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "ee_body_name": "gripper_link", # 同上，请确认 Link 名称
+            
+    #         # [参数] beta: 对速度误差的敏感度
+    #         "beta": 10.0,
+            
+    #         # [参数] direction_axis: 如果传送带只沿 X 轴运动，可以填 "x"。
+    #         # 填 None 则匹配整个 3D 速度向量（推荐先填 None 以保证鲁棒性）
+    #         "direction_axis": None, 
+    #     }
+    # )
+
 
 @configclass
 class TerminationsCfg:
@@ -331,6 +371,16 @@ class TerminationsCfg:
 
     object_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
+    )
+    object_drop_after_lift_and_drop = DoneTerm(
+        func=mdp.root_drop_after_lift, 
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
+            "lift_threshold": 0.05, 
+            # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
+            "drop_threshold": 0.02 
+        }
     )
 
 
@@ -372,6 +422,27 @@ class CurriculumCfg:
             "end_step": 70000,
         }
     )
+    # position_interception = CurrTerm(
+    #     func=mdp.modify_reward_weight_linearly, 
+    #     params={
+    #         "term_name": "predictive_interception",                                         
+    #         "start_weight": 0.0,
+    #         "end_weight": 10.0,
+    #         "start_step": 30000,
+    #         "end_step": 70000,
+    #     }
+    # )
+
+    # velocity_matching = CurrTerm(
+    #     func=mdp.modify_reward_weight_linearly, 
+    #     params={
+    #         "term_name": "velocity_matching",                                         
+    #         "start_weight": 0.0,
+    #         "end_weight": 10.0,
+    #         "start_step": 30000,
+    #         "end_step": 70000,
+    #     }
+    # )
 
     # action_rate = CurrTerm(
     #     func=mdp.modify_reward_weight_linearly, 

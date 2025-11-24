@@ -257,21 +257,6 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=5.0)  ## .25
-
-    # grasp_incentive = RewTerm(
-    #     func=mdp.encourage_grasp_at_target,
-    #     weight=10.0, # 权重为正，因为函数内部返回的是-1.0，最终惩罚是-10
-    #     params={
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         # [重要] 确保这里的TCP定义与你的IK控制器(如果使用)或ee_frame一致
-    #         "tcp_offset": (0.0, 0.0, 0.0), # 示例值
-    #         "ee_body_name": "gripper_link",
-    #         # 定义“足够近”的距离阈值 (m)
-    #         # 应该比你的夹爪张开时的一半宽度略大
-    #         "distance_threshold": 0.05,
-    #     }
-    # )
     
     grasping_cylinder = RewTerm(
     func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
@@ -332,6 +317,27 @@ class TerminationsCfg:
     object_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
     )
+
+    object_drop_after_lift_and_drop = DoneTerm(
+        func=mdp.root_drop_after_lift, 
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
+            "lift_threshold": 0.05, 
+            # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
+            "drop_threshold": 0.02 
+        }
+    )
+
+    # object_out_of_bounds = DoneTerm(
+    #     func=mdp.object_out_of_workspace, # 指向刚才写的函数
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         "x_limits": (0.35, 0.6),   # 限制 X 轴在 0.35 到 0.6 米之间
+    #         "y_limits": (-0.5, 0.5),  # 限制 Y 轴在 -0.5 到 0.5 米之间
+    #         "z_limits": (0.0, 1.0),   # (可选) 限制高度不超过 1 米
+    #     },
+    # )
 
 
 @configclass

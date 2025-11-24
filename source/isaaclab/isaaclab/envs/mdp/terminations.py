@@ -71,6 +71,47 @@ def root_height_below_minimum(
     asset: RigidObject = env.scene[asset_cfg.name]
     return asset.data.root_pos_w[:, 2] < minimum_height
 
+def object_out_of_workspace(
+    env: ManagerBasedRLEnv,
+    x_limits: tuple[float, float] | None = None,
+    y_limits: tuple[float, float] | None = None,
+    z_limits: tuple[float, float] | None = None,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+) -> torch.Tensor:
+    """
+    当物体移出指定的工作空间范围（边界框）时终止回合 (已修正为局部坐标系)。
+    """
+    # 获取物体对象
+    asset: RigidObject = env.scene[asset_cfg.name]
+    
+    # 1. 获取世界坐标系下的位置
+    root_pos_w = asset.data.root_pos_w
+    
+    # 2. 获取所有环境的坐标原点 (形状: [num_envs, 3])
+    env_origins = env.scene.env_origins
+    
+    # 3. ***** 关键修正：通过减法计算出局部坐标系下的位置 *****
+    root_pos = root_pos_w - env_origins
+    
+    # 初始化一个全为 False 的 tensor (即默认不终止)
+    out_of_bounds = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # 检查 X 轴限制 (其余逻辑保持不变，但使用的是新的 root_pos)
+    if x_limits is not None:
+        out_of_x = (root_pos[:, 0] < x_limits[0]) | (root_pos[:, 0] > x_limits[1])
+        out_of_bounds |= out_of_x
+
+    # 检查 Y 轴限制
+    if y_limits is not None:
+        out_of_y = (root_pos[:, 1] < y_limits[0]) | (root_pos[:, 1] > y_limits[1])
+        out_of_bounds |= out_of_y
+
+    # 检查 Z 轴限制
+    if z_limits is not None:
+        out_of_z = (root_pos[:, 2] < z_limits[0]) | (root_pos[:, 2] > z_limits[1])
+        out_of_bounds |= out_of_z
+
+    return out_of_bounds
 
 """
 Joint terminations.

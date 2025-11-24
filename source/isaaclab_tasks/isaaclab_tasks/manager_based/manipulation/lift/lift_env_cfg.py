@@ -46,7 +46,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # end-effector sensor: will be populated by agent env cfg
     ee_frame: FrameTransformerCfg = MISSING
     # 加入目标坐标系的可视化
-    object_frame: FrameTransformerCfg = MISSING
+    # object_frame: FrameTransformerCfg = MISSING
     world_frame: FrameTransformerCfg = MISSING
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
@@ -284,7 +284,7 @@ class RewardsCfg:
     },
 )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.03}, weight=100.0)
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=100.0)
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
@@ -318,16 +318,16 @@ class TerminationsCfg:
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
     )
 
-    object_drop_after_lift_and_drop = DoneTerm(
-        func=mdp.root_drop_after_lift, 
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
-            "lift_threshold": 0.05, 
-            # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
-            "drop_threshold": 0.02 
-        }
-    )
+    # object_drop_after_lift_and_drop = DoneTerm(
+    #     func=mdp.root_drop_after_lift, 
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
+    #         "lift_threshold": 0.05, 
+    #         # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
+    #         "drop_threshold": 0.02 
+    #     }
+    # )
 
     # object_out_of_bounds = DoneTerm(
     #     func=mdp.object_out_of_workspace, # 指向刚才写的函数

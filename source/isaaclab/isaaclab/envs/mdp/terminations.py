@@ -71,6 +71,52 @@ def root_height_below_minimum(
     asset: RigidObject = env.scene[asset_cfg.name]
     return asset.data.root_pos_w[:, 2] < minimum_height
 
+def root_drop_after_lift(
+    env: ManagerBasedRLEnv,  
+    lift_threshold: float,
+    drop_threshold: float,
+    asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """
+    状态终止条件：判断物体是否在达到 lift_threshold 后又掉落到 drop_threshold 以下。
+    
+    注意：因为这是一个独立的函数，我们将状态变量 _custom_max_height 挂载到 env 对象上。
+    """
+    # 1. 获取物体当前高度
+    object_pos_w = env.scene[asset_cfg.name].data.root_pos_w
+    current_height = object_pos_w[:, 2]
+
+    # 2. 初始化状态容器 (挂载到 env 上)
+    # 如果 env 上还没有这个变量，我们就创建一个
+    if not hasattr(env, "_custom_object_max_height"):
+        env._custom_object_max_height = torch.zeros(env.num_envs, device=env.device)
+
+    # 3. 处理回合重置 (Reset Logic)
+    # 关键点：当环境重置时(episode_length=0或刚开始)，我们需要把记录的最高高度清零。
+    # 在 step() 内部，计算 termination 时 episode_length 通常至少为 1。
+    # 所以我们判断：如果 episode_length <= 1，说明是新回合的开始，重置该环境的 max_height。
+    reset_indices = (env.episode_length_buf <= 1)
+    if torch.any(reset_indices):
+        # 将重置了的环境的 max_height 设为当前高度（通常是桌面高度）
+        env._custom_object_max_height[reset_indices] = current_height[reset_indices]
+
+    # 4. 更新当前回合中达到的最高高度
+    env._custom_object_max_height = torch.max(env._custom_object_max_height, current_height)
+    
+    # 5. 终止条件判断
+    
+    # 条件 A: 物体是否曾被成功举起 (历史最高高度 > 举起阈值)
+    has_been_lifted_mask = (env._custom_object_max_height > lift_threshold)
+
+    # 条件 B: 物体是否当前掉落到安全高度以下 (当前高度 < 掉落阈值)
+    is_dropped_mask = (current_height < drop_threshold)
+
+    # 终止：当条件 A 和 B 都满足时 (即先被举起，后又掉落)
+    is_done = torch.logical_and(has_been_lifted_mask, is_dropped_mask)
+
+    # 返回布尔值 (Isaac Lab 会自动处理类型转换)
+    return is_done
+
 def object_out_of_workspace(
     env: ManagerBasedRLEnv,
     x_limits: tuple[float, float] | None = None,

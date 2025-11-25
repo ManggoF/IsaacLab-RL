@@ -224,6 +224,15 @@ class EventCfg:
             "lift_height_threshold": 0.04, 
         },
     )
+    
+    randomize_object_scale = EventTerm(
+        func=mdp.randomize_rigid_body_scale,
+        mode="usd",
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            "scale_range": (0.8, 1.2), # 在 0.8 到 1.2 之间均匀缩放
+        },
+    )
 
 
 @configclass

@@ -216,7 +216,7 @@ class EventCfg:
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.2, 0.2),
+            "speed_range": (0.1, 0.3),
             "threshold_steps": 80,
             # [关键] 设置一个判断“被举起”的高度阈值 (m)
             # 这个值应该比物体在传送带上的高度略高一点
@@ -224,32 +224,6 @@ class EventCfg:
             "lift_height_threshold": 0.04, 
         },
     )
-    
-
-    # move_object = EventTerm(
-    #     func=mdp.continuous_move,
-    #     mode="interval",
-    #     interval_range_s=(0.01, 0.01),
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("object", body_names="Object"),
-    #         "speed_range": (0.2, 0.2),
-    #         "threshold_steps": 80,
-    #     },
-    # )
-
-    # # Declare the type of movement for the object and velocity.
-    # move_object = EventTerm(
-    #     func=mdp.continuous_move,
-    #     mode="interval",
-    #     interval_range_s=(0.01, 0.01),
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("object", body_names="Object"),
-    #         "speed_range": (0.3, 0.3),
-    #         "threshold_steps": 40,
-    #         "motion_type": "sin",     
-    #         "period": 20,
-    #     },
-    # )
 
 
 @configclass
@@ -280,11 +254,11 @@ class RewardsCfg:
 
         # [关键] 定义TCP和物体的高度差阈值 (m)
         # 一个非常小的值，表示物体正被夹爪的中心“托住”
-        "height_difference_threshold": 0.005, # 5毫米
+        "height_difference_threshold": 0.005, #     cylinder:5毫米   cube:0.01
     },
 )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=100.0)
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=100.0)  #cube0.04/cylinder0.03
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,

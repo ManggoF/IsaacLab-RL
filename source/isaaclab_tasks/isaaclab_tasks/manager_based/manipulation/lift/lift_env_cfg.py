@@ -269,6 +269,45 @@ class RewardsCfg:
 
     lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=100.0)  #cube0.04/cylinder0.03
 
+# --- [新增] 论文中的两个动态抓取奖励 ---
+
+    # 1. 预测拦截奖励 (Predictive Interception Reward)
+    # 作用：鼓励机器人去抓物体 "0.2秒后" 会出现的位置，而不是当前位置
+    predictive_interception = RewTerm(
+        func=mdp.reward_predictive_interception, # 请确保导入了这个函数
+        weight=1.0, # 权重 w_p
+        params={
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object"),
+            # [设置] 您的末端执行器Link名称，通常是夹爪中心或法兰盘
+            "ee_body_name": "gripper_link",
+            
+            # [参数] dt: 预判时间窗口。如果传送带很快，这个值可以大一点 (e.g., 0.2 - 0.5)
+            "dt": 0.1, 
+            
+            # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
+            "alpha": 10.0, 
+        }
+    )
+
+    # # 2. 速度匹配奖励 (Velocity Matching Reward)
+    # # 作用：鼓励机器人在接触物体前，速度与物体保持一致
+    velocity_matching = RewTerm(
+        func=mdp.reward_velocity_matching, # 请确保导入了这个函数
+        weight=1.0, # 权重 w_v
+        params={
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object"),
+            "ee_body_name": "gripper_link", # 同上，请确认 Link 名称
+            
+            # [参数] beta: 对速度误差的敏感度
+            "beta": 10.0,
+            
+            # [参数] direction_axis: 如果传送带只沿 X 轴运动，可以填 "x"。
+            # 填 None 则匹配整个 3D 速度向量（推荐先填 None 以保证鲁棒性）
+            "direction_axis": None, 
+        }
+    )
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
         params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},

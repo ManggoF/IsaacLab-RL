@@ -212,3 +212,80 @@ def cylinder_is_grasped_and_controlled(
 #     penalty = torch.where(tcp_height < minimal_height, minimal_height - tcp_height, 0.0)
 #     return penalty
 # )
+
+def reward_predictive_interception(
+    env: ManagerBasedRLEnv,
+    dt: float,
+    alpha: float,
+    robot_cfg: SceneEntityCfg,
+    object_cfg: SceneEntityCfg,
+    ee_body_name: str,
+    cutoff_height: float = 0.03  # 截止高度/最小抓取高度
+) -> torch.Tensor:
+    """
+    预测拦截奖励 (R_pred) - 当物体被抓取后奖励归零。
+    """
+    # 1. 获取物体状态
+    object_state = env.scene[object_cfg.name].data.root_state_w
+    p_obj = object_state[:, 0:3]
+    v_obj = object_state[:, 7:10]
+    obj_height = p_obj[:, 2] # 获取 Z 轴高度
+
+    # 2. 获取 EE 状态
+    robot = env.scene[robot_cfg.name]
+    ee_idx = robot.find_bodies(ee_body_name)[0][0]
+    p_ee = robot.data.body_state_w[:, ee_idx, 0:3]
+
+    # 3. 计算预测位置
+    p_pred = p_obj + v_obj * dt
+
+    # 4. 计算原始高斯奖励
+    error_sq = torch.sum(torch.square(p_ee - p_pred), dim=-1)
+    raw_reward = torch.exp(-alpha * error_sq)
+
+    # 5. [核心逻辑] 应用抓取掩码
+    # 判断是否被提起 (is_lifted 的逻辑与你的 object_is_lifted 相同)
+    is_lifted = (obj_height > cutoff_height)
+    
+    # 如果 is_lifted 为 True，最终奖励为 0.0；否则保持 raw_reward
+    final_reward = torch.where(is_lifted, torch.zeros_like(raw_reward), raw_reward)
+
+    return final_reward.view(-1)
+
+def reward_velocity_matching(
+    env: ManagerBasedRLEnv,
+    beta: float,
+    robot_cfg: SceneEntityCfg,
+    object_cfg: SceneEntityCfg,
+    ee_body_name: str,
+    direction_axis: str = None,
+    cutoff_height: float = 0.03 # 截止高度/最小抓取高度
+) -> torch.Tensor:
+    """
+    速度匹配奖励 (R_vel) - 当物体被抓取后奖励归零。
+    """
+    # 1. 获取物体状态
+    object_state = env.scene[object_cfg.name].data.root_state_w
+    v_obj = object_state[:, 7:10]
+    p_obj = object_state[:, 0:3] # 获取 Z 轴高度
+
+    # 2. 获取 EE 速度
+    robot = env.scene[robot_cfg.name]
+    ee_idx = robot.find_bodies(ee_body_name)[0][0]
+    v_ee = robot.data.body_state_w[:, ee_idx, 7:10]
+
+    # 3. 处理速度差异
+    if direction_axis in ["x", "y", "z"]:
+        idx = ["x", "y", "z"].index(direction_axis)
+        diff_sq = torch.square(v_ee[:, idx] - v_obj[:, idx])
+    else:
+        diff_sq = torch.sum(torch.square(v_ee - v_obj), dim=-1)
+
+    # 4. 计算原始高斯奖励
+    raw_reward = torch.exp(-beta * diff_sq)
+
+    # 5. [核心逻辑] 应用抓取掩码
+    is_lifted = (p_obj[:, 2] > cutoff_height)
+    final_reward = torch.where(is_lifted, torch.zeros_like(raw_reward), raw_reward)
+
+    return final_reward.view(-1)

@@ -216,7 +216,7 @@ class EventCfg:
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.1, 0.3),
+            "speed_range": (0.0, 0.3),
             "threshold_steps": 80,
             # [关键] 设置一个判断“被举起”的高度阈值 (m)
             # 这个值应该比物体在传送带上的高度略高一点
@@ -263,7 +263,7 @@ class RewardsCfg:
 
         # [关键] 定义TCP和物体的高度差阈值 (m)
         # 一个非常小的值，表示物体正被夹爪的中心“托住”
-        "height_difference_threshold": 0.005, #     cylinder:5毫米   cube:0.01
+        "height_difference_threshold": 0.01, #     cylinder:5毫米   cube:0.01
     },
 )
 
@@ -271,13 +271,13 @@ class RewardsCfg:
 
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.3, "minimal_height": 0.03, "command_name": "object_pose"},
+        params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},
         weight=16.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(
         func=mdp.object_goal_distance,
-        params={"std": 0.05, "minimal_height": 0.03, "command_name": "object_pose"},
+        params={"std": 0.05, "minimal_height": 0.04, "command_name": "object_pose"},
         weight=5.0,
     )
 
@@ -301,16 +301,16 @@ class TerminationsCfg:
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
     )
 
-    # object_drop_after_lift_and_drop = DoneTerm(
-    #     func=mdp.root_drop_after_lift, 
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("object"),
-    #         # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
-    #         "lift_threshold": 0.05, 
-    #         # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
-    #         "drop_threshold": 0.02 
-    #     }
-    # )
+    object_drop_after_lift_and_drop = DoneTerm(
+        func=mdp.root_drop_after_lift, 
+        params={
+            "asset_cfg": SceneEntityCfg("object"),
+            # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
+            "lift_threshold": 0.06, 
+            # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
+            "drop_threshold": 0.02 
+        }
+    )
 
     # object_out_of_bounds = DoneTerm(
     #     func=mdp.object_out_of_workspace, # 指向刚才写的函数
@@ -362,16 +362,16 @@ class CurriculumCfg:
         }
     )
 
-    # action_rate = CurrTerm(
-    #     func=mdp.modify_reward_weight_linearly, 
-    #     params={
-    #         "term_name": "action_rate",                                         
-    #         "start_weight": -3e-5,
-    #         "end_weight": -0.1,
-    #         "start_step": 30000,
-    #         "end_step": 70000,
-    #     }
-    # )
+    action_rate = CurrTerm(
+        func=mdp.modify_reward_weight_linearly, 
+        params={
+            "term_name": "action_rate",                                         
+            "start_weight": -3e-5,
+            "end_weight": -1.0,
+            "start_step": 24000,
+            "end_step": 48000,
+        }
+    )
 
     # joint_vel = CurrTerm(
     #     func=mdp.modify_reward_weight_linearly, 

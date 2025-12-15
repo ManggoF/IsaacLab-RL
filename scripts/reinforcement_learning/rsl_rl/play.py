@@ -9,6 +9,16 @@
 
 import argparse
 import sys
+import os
+import time
+import torch
+import gymnasium as gym
+
+# --- ADDED FOR PLOTTING ---
+import matplotlib.pyplot as plt
+import numpy as np
+from collections import deque
+# --------------------------
 
 from isaaclab.app import AppLauncher
 
@@ -34,6 +44,7 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -52,11 +63,6 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 """Rest everything follows."""
-
-import gymnasium as gym
-import os
-import time
-import torch
 
 from rsl_rl.runners import OnPolicyRunner
 
@@ -77,9 +83,6 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-# PLACEHOLDER: Extension template (do not remove this comment)
-
-
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Play with RSL-RL agent."""
@@ -92,7 +95,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
 
     # set the environment seed
-    # note: certain randomizations occur in the environment initialization so we set the seed here
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
@@ -115,11 +117,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
-    # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
-    # wrap for video recording
     if args_cli.video:
         video_kwargs = {
             "video_folder": os.path.join(log_dir, "videos", "play"),
@@ -131,64 +131,113 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
-    # wrap around environment for rsl-rl
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-    # load previously trained model
     ppo_runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     ppo_runner.load(resume_path)
-
-    # obtain the trained policy for inference
     policy = ppo_runner.get_inference_policy(device=env.unwrapped.device)
-
-    # extract the neural network module
-    # we do this in a try-except to maintain backwards compatibility.
-    try:
-        # version 2.3 onwards
-        policy_nn = ppo_runner.alg.policy
-    except AttributeError:
-        # version 2.2 and below
-        policy_nn = ppo_runner.alg.actor_critic
-
-    # export policy to onnx/jit
-    export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(
-        policy_nn, normalizer=ppo_runner.obs_normalizer, path=export_model_dir, filename="policy.onnx"
-    )
-
+    
     dt = env.unwrapped.step_dt
-
-    # reset environment
     obs, _ = env.get_observations()
     timestep = 0
-    # simulate environment
+
+    ## --- ADDED FOR PLOTTING (7 DOF: 6 Arm + 1 Gripper) --- ##
+    try:
+        robot_entity = env.unwrapped.scene["robot"]
+    except KeyError:
+        print("[ERROR] Could not find 'robot' in scene entities.")
+        raise
+
+    # [核心配置]
+    ARM_DIM = 6      # 前6个是机械臂
+    GRIPPER_DIM = 1  # 第7个是夹爪(Index 6)
+    
+    # 打印真实维度供调试
+    real_dim = robot_entity.data.joint_pos.shape[-1]
+    print(f"\n[INFO] Real Robot DOF: {real_dim}. We will plot indices 0-5 (Arm) and 6 (Gripper).\n")
+
+    history_len = 200
+    
+    # 两个独立的队列列表
+    arm_history = [deque(maxlen=history_len) for _ in range(ARM_DIM)]
+    gripper_history = [deque(maxlen=history_len) for _ in range(GRIPPER_DIM)]
+
+    plt.ion()
+    # 创建两个子图：上面画机械臂，下面画夹爪
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 8), sharex=True)
+    ax_arm, ax_gripper = axes[0], axes[1]
+    
+    fig.suptitle("Real-time Joint Positions", fontsize=16)
+
+    # --- 配置机械臂子图 ---
+    ax_arm.set_title(f"Arm Joints (Indices 0-5)")
+    ax_arm.set_ylabel("Position (rad)")
+    arm_lines = [ax_arm.plot([], [], label=f'Arm J{i+1}')[0] for i in range(ARM_DIM)]
+    ax_arm.legend(loc='upper right', fontsize='small', ncol=3)
+    ax_arm.grid(True)
+
+    # --- 配置夹爪子图 ---
+    ax_gripper.set_title(f"Gripper Main Joint (Index 6)")
+    ax_gripper.set_ylabel("Position (rad)")
+    ax_gripper.set_xlabel("Time Steps")
+    gripper_lines = [ax_gripper.plot([], [], label=f'Gripper', color='orange')[0] for i in range(GRIPPER_DIM)]
+    ax_gripper.legend(loc='upper right')
+    ax_gripper.grid(True)
+    ## ---------------------------------------------------- ##
+
+
     while simulation_app.is_running():
         start_time = time.time()
-        # run everything in inference mode
         with torch.inference_mode():
-            # agent stepping
             actions = policy(obs)
-            # env stepping
+            
+            # 获取所有关节位置
+            full_joint_pos = robot_entity.data.joint_pos[0].cpu().numpy()
+            
+            # 1. 更新机械臂数据 (前6个)
+            for i in range(ARM_DIM):
+                if i < len(full_joint_pos):
+                    arm_history[i].append(full_joint_pos[i])
+            
+            # 2. 更新夹爪数据 (第7个，即 index 6)
+            gripper_idx = 6
+            if gripper_idx < len(full_joint_pos):
+                gripper_history[0].append(full_joint_pos[gripper_idx])
+            
+            # --- 绘图更新 ---
+            
+            # 机械臂曲线
+            for i, line in enumerate(arm_lines):
+                line.set_data(np.arange(len(arm_history[i])), arm_history[i])
+            ax_arm.relim()
+            ax_arm.autoscale_view()
+            
+            # 夹爪曲线
+            for i, line in enumerate(gripper_lines):
+                line.set_data(np.arange(len(gripper_history[i])), gripper_history[i])
+            ax_gripper.relim()
+            ax_gripper.autoscale_view()
+            
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            plt.pause(0.001) 
+            
             obs, _, _, _ = env.step(actions)
+        
         if args_cli.video:
             timestep += 1
-            # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
-
-        # time delay for real-time evaluation
+        
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
 
-    # close the simulator
+    plt.close(fig)
     env.close()
 
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
     simulation_app.close()

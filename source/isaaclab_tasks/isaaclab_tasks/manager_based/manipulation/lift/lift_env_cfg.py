@@ -153,7 +153,7 @@ class CommandsCfg:
         resampling_time_range=(5.0, 5.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.6, 0.6), pos_y=(0.0, 0.0), pos_z=(0.35, 0.35), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
+            pos_x=(0.6, 0.6), pos_y=(0.0, 0.0), pos_z=(0.5, 0.5), roll=(0.0, 0.0), pitch=(0.0, 0.0), yaw=(0.0, 0.0)
         ),
     )
 
@@ -406,22 +406,22 @@ class CurriculumCfg:
         params={
             "term_name": "action_rate",                                         
             "start_weight": -3e-5,
-            "end_weight": -1.0,
+            "end_weight": -3.0,
             "start_step": 24000,
             "end_step": 48000,
         }
     )
 
-    # joint_vel = CurrTerm(
-    #     func=mdp.modify_reward_weight_linearly, 
-    #     params={
-    #         "term_name": "joint_vel", 
-    #         "start_weight": -1e-5, 
-    #         "end_weight": -0.1,
-    #         "start_step": 30000,
-    #         "end_step": 70000,
-    #     }
-    # )
+    joint_vel = CurrTerm(
+        func=mdp.modify_reward_weight_linearly, 
+        params={
+            "term_name": "joint_vel", 
+            "start_weight": -1e-5, 
+            "end_weight": -0.1,
+            "start_step": 30000,
+            "end_step": 70000,
+        }
+    )
 
 
 ##

@@ -208,6 +208,34 @@ class EventCfg:
         },
     )
 
+    # reset_object_once_if_lifted = EventTerm(
+    #     func=mdp.reset_object_after_lift, 
+    #     mode="interval",
+    #     interval_range_s=(0.02, 0.02),
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         "lift_height_threshold": 0.04, 
+    #         # 【关键修改】：在这里定义每个轴的随机偏移范围 [min, max]
+    #         "reset_offset_w_range": {
+    #             # X轴：在 -1 cm 到 +1 cm 之间随机偏移
+    #             "x": (-0.05, 0.05), 
+    #             # Y轴：在 -1 cm 到 +1 cm 之间随机偏移
+    #             "y": (-0.05, 0.05), 
+    #             # Z轴：在 -5 cm 到 -2 cm 之间随机偏移 (保证向下移动)
+    #             "z": (-0.03, -0.03),
+    #         },
+    #     },
+    # )
+    # clear_reset_flag_on_env_reset = EventTerm(
+    # # 指向新的清除函数
+    #     func=mdp.clear_object_reset_flag, 
+    #     # 关键：设置为 "reset" 模式，确保它在环境重置时被调用
+    #     mode="reset", 
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #     }
+    # )
+
     move_object_smartly = EventTerm(
         func=mdp.move_object_unless_lifted, # <<--- 使用新的、基于高度的函数
         mode="interval",
@@ -216,7 +244,7 @@ class EventCfg:
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.0, 0.3),
+            "speed_range": (0.0, 0.0),
             "threshold_steps": 80,
             # [关键] 设置一个判断“被举起”的高度阈值 (m)
             # 这个值应该比物体在传送带上的高度略高一点
@@ -273,41 +301,41 @@ class RewardsCfg:
 
     # 1. 预测拦截奖励 (Predictive Interception Reward)
     # 作用：鼓励机器人去抓物体 "0.2秒后" 会出现的位置，而不是当前位置
-    predictive_interception = RewTerm(
-        func=mdp.reward_predictive_interception, # 请确保导入了这个函数
-        weight=1.0, # 权重 w_p
-        params={
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object"),
-            # [设置] 您的末端执行器Link名称，通常是夹爪中心或法兰盘
-            "ee_body_name": "gripper_link",
+    # predictive_interception = RewTerm(
+    #     func=mdp.reward_predictive_interception, # 请确保导入了这个函数
+    #     weight=1.0, # 权重 w_p
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         # [设置] 您的末端执行器Link名称，通常是夹爪中心或法兰盘
+    #         "ee_body_name": "gripper_link",
             
-            # [参数] dt: 预判时间窗口。如果传送带很快，这个值可以大一点 (e.g., 0.2 - 0.5)
-            "dt": 0.1, 
+    #         # [参数] dt: 预判时间窗口。如果传送带很快，这个值可以大一点 (e.g., 0.2 - 0.5)
+    #         "dt": 0.1, 
             
-            # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
-            "alpha": 10.0, 
-        }
-    )
+    #         # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
+    #         "alpha": 10.0, 
+    #     }
+    # )
 
-    # # 2. 速度匹配奖励 (Velocity Matching Reward)
-    # # 作用：鼓励机器人在接触物体前，速度与物体保持一致
-    velocity_matching = RewTerm(
-        func=mdp.reward_velocity_matching, # 请确保导入了这个函数
-        weight=1.0, # 权重 w_v
-        params={
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object"),
-            "ee_body_name": "gripper_link", # 同上，请确认 Link 名称
+    # # # 2. 速度匹配奖励 (Velocity Matching Reward)
+    # # # 作用：鼓励机器人在接触物体前，速度与物体保持一致
+    # velocity_matching = RewTerm(
+    #     func=mdp.reward_velocity_matching, # 请确保导入了这个函数
+    #     weight=1.0, # 权重 w_v
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "ee_body_name": "gripper_link", # 同上，请确认 Link 名称
             
-            # [参数] beta: 对速度误差的敏感度
-            "beta": 10.0,
+    #         # [参数] beta: 对速度误差的敏感度
+    #         "beta": 10.0,
             
-            # [参数] direction_axis: 如果传送带只沿 X 轴运动，可以填 "x"。
-            # 填 None 则匹配整个 3D 速度向量（推荐先填 None 以保证鲁棒性）
-            "direction_axis": None, 
-        }
-    )
+    #         # [参数] direction_axis: 如果传送带只沿 X 轴运动，可以填 "x"。
+    #         # 填 None 则匹配整个 3D 速度向量（推荐先填 None 以保证鲁棒性）
+    #         "direction_axis": None, 
+    #     }
+    # )
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
         params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},
@@ -340,16 +368,16 @@ class TerminationsCfg:
         func=mdp.root_height_below_minimum, params={"minimum_height": -0.01, "asset_cfg": SceneEntityCfg("object")}
     )
 
-    object_drop_after_lift_and_drop = DoneTerm(
-        func=mdp.root_drop_after_lift, 
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
-            "lift_threshold": 0.06, 
-            # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
-            "drop_threshold": 0.02 
-        }
-    )
+    # object_drop_after_lift_and_drop = DoneTerm(
+    #     func=mdp.root_drop_after_lift, 
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         # 判定为“成功举起”的高度 (需大于物体在传送带上的高度)
+    #         "lift_threshold": 0.06, 
+    #         # 判定为“掉落”的高度 (需接近于地面的高度，例如 1cm)
+    #         "drop_threshold": 0.02 
+    #     }
+    # )
 
     # object_out_of_bounds = DoneTerm(
     #     func=mdp.object_out_of_workspace, # 指向刚才写的函数

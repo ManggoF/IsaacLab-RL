@@ -34,7 +34,7 @@ from isaaclab.terrains import TerrainImporter
 from isaaclab.utils.version import compare_versions
 
 if TYPE_CHECKING:
-    from isaaclab.envs import ManagerBasedEnv
+    from isaaclab.envs import ManagerBasedEnv,ManagerBasedRLEnv
 
 
 def randomize_rigid_body_scale(
@@ -1043,6 +1043,110 @@ def reset_root_state_uniform(
     asset.write_root_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
     asset.write_root_velocity_to_sim(velocities, env_ids=env_ids)
 
+def reset_object_after_lift(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    *,
+    asset_cfg: SceneEntityCfg,
+    lift_height_threshold: float,
+    # 【修改参数】：现在是一个包含 min/max 范围的字典
+    # 示例: {"x": [min_x, max_x], "y": [min_y, max_y], "z": [min_z, max_z]}
+    reset_offset_w_range: dict[str, tuple[float, float]] = None,
+):
+    """
+    当物体被举起到超过阈值高度时，将其位置重置为：当前位置 + 随机采样偏移量，并清除速度。
+    此操作对每个环境仅执行一次。
+
+    Args:
+        env (ManagerBasedRLEnv): 当前的环境管理器。
+        env_ids (torch.Tensor): 需要执行此逻辑的环境ID。
+        asset_cfg (SceneEntityCfg): 物体资产的配置信息。
+        lift_height_threshold (float): 判断物体是否被举起的高度阈值。
+        reset_offset_w_range (dict[str, tuple[float, float]]): 
+            包含 x, y, z 轴偏移量的 [min, max] 范围字典。
+            例如: {"x": [-0.01, 0.01], "z": [-0.05, -0.02]}
+    """
+    obj: RigidObject = env.scene[asset_cfg.name]
+    
+    # 确保提供了范围配置
+    if reset_offset_w_range is None:
+        return 
+
+    # -- 1. 状态初始化 (保持不变)
+    if not hasattr(env, "_object_reset_triggered"):
+        # 初始时，所有环境都没有重置过 (False)
+        env._object_reset_triggered = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        env._initial_rot = obj.data.root_quat_w.clone()
+
+    # -- 2. 识别需要重置的物体 (逻辑保持不变)
+    object_heights = obj.data.root_pos_w[:, 2]
+    
+    is_lifted_and_not_reset = (
+        (object_heights > lift_height_threshold)
+        & (~env._object_reset_triggered)
+    )
+    
+    envs_to_reset_mask = env_ids[is_lifted_and_not_reset[env_ids]]
+    
+    if envs_to_reset_mask.numel() > 0:
+        num_resets = envs_to_reset_mask.numel()
+        device = env.device
+
+        # a. 准备根位置和速度张量 (克隆所有环境的当前状态)
+        current_root_pos = obj.data.root_pos_w.clone()
+        current_root_rot = obj.data.root_quat_w.clone()
+        current_lin_vel = obj.data.root_lin_vel_w.clone()
+        current_ang_vel = obj.data.root_lin_vel_w.clone() # 修正为 root_ang_vel_w.clone()
+        
+        # current_ang_vel = obj.data.root_ang_vel_w.clone() # 使用这个更安全
+
+        # b. 【核心修改】：生成随机偏移张量 (仅针对需要重置的环境)
+        offset_tensor = torch.zeros((num_resets, 3), device=device)
+        
+        # 遍历 x, y, z，对每个轴进行采样
+        for i, axis in enumerate(["x", "y", "z"]):
+            if axis in reset_offset_w_range:
+                low, high = reset_offset_w_range[axis]
+                
+                # 在 [low, high] 范围内生成均匀随机数
+                # 使用 torch.empty().uniform_(low, high) 进行高效采样
+                offset_tensor[:, i].uniform_(low, high)
+
+        # c. 应用重置：更新所有环境的完整张量
+        
+        # 根位置: 当前位置 + 随机采样偏移量
+        current_root_pos[envs_to_reset_mask] += offset_tensor
+        
+        # 速度清零
+        current_lin_vel[envs_to_reset_mask] = 0.0
+        current_ang_vel[envs_to_reset_mask] = 0.0
+        
+        # d. 调用API写入模拟器
+        obj.write_root_pose_to_sim(
+            torch.cat([current_root_pos, current_root_rot], dim=1)
+        )
+        
+        obj.write_root_velocity_to_sim(
+            torch.cat([current_lin_vel, current_ang_vel], dim=1)
+        )
+
+        # -- 4. 标记已重置
+        env._object_reset_triggered[envs_to_reset_mask] = True
+
+def clear_object_reset_flag(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    *,
+    asset_cfg: SceneEntityCfg, # 尽管我们不用它，但保持参数签名一致
+):
+    """
+    在环境重置时调用，清除 _object_reset_triggered 标记，允许物体在下一回合中再次触发重置。
+    """
+    if hasattr(env, "_object_reset_triggered"):
+        # 仅清除本次环境重置涉及到的 env_ids 的标记
+        env._object_reset_triggered[env_ids] = False
 
 def reset_root_state_with_random_orientation(
     env: ManagerBasedEnv,

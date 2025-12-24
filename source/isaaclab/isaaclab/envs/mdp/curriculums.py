@@ -312,6 +312,27 @@ class modify_env_param(ManagerTermBase):
             )
 
         return get_value, set_value
+    
+# def linear_interpolation_speed(env, env_ids, old_value, start_speed, end_speed, start_step, end_step):
+#     """
+#     计算线性插值的速度范围。
+#     用于配合 mdp.modify_term_cfg 使用。
+#     """
+#     current_step = env.common_step_counter
+
+#     # 1. 计算目标速度
+#     if current_step <= start_step:
+#         speed = start_speed
+#     elif current_step >= end_step:
+#         speed = end_speed
+#     else:
+#         # 线性插值
+#         ratio = (current_step - start_step) / (end_step - start_step)
+#         speed = start_speed + ratio * (end_speed - start_speed)
+
+#     # 2. 返回新的参数值
+#     # speed_range 是一个 tuple (min, max)，我们把它设为 (speed, speed)
+#     return (speed, speed)
 
 
 class modify_term_cfg(modify_env_param):

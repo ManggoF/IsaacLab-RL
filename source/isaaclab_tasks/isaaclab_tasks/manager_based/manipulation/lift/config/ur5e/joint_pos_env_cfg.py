@@ -13,7 +13,7 @@ from isaaclab.envs.mdp.actions.actions_cfg import (
 )
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
-from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
+from isaaclab.sim.schemas.schemas_cfg import CollisionPropertiesCfg, RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
 from isaaclab.sim.spawners.shapes.shapes_cfg import CylinderCfg
 from isaaclab.sim.spawners.materials import RigidBodyMaterialCfg
@@ -23,12 +23,24 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from isaaclab_tasks.manager_based.manipulation.lift.lift_env_cfg import LiftEnvCfg
 import isaaclab.sim as sim_utils
+from isaaclab.sim import MultiUsdFileCfg
 ##
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
 from isaaclab_assets.robots.ur5_cfg import UR5_CFG  # isort: skip
 
+##
+# 物体路径池定义
+##
+usd_paths = [
+    # 原始方块
+    f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+    # 圆柱体 (使用 YCB 汤罐)
+    f"{ISAAC_NUCLEUS_DIR}/Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd",
+    # 香蕉
+    f"{ISAAC_NUCLEUS_DIR}/Props/YCB/Axis_Aligned_Physics/sugar_box.usd",
+]
 
 @configclass
 class UR5eCubeLiftEnvCfg(LiftEnvCfg):
@@ -39,23 +51,6 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
         # Set UR5e as robot - Using high PD for better IK tracking
         self.scene.robot = UR5_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         
-
-        # Set actions for the specific robot type (ur5e) - Using Differential IK
-        # self.actions.arm_action = DifferentialInverseKinematicsActionCfg(
-        #     asset_name="robot",
-        #     joint_names=[
-        #         "shoulder_pan_joint",
-        #         "shoulder_lift_joint",
-        #         "elbow_joint",
-        #         "wrist_1_joint",
-        #         "wrist_2_joint",
-        #         "wrist_3_joint",
-        #     ],
-        #     body_name="wrist_3_link",
-        #     controller=DifferentialIKControllerCfg(command_type="pose", use_relative_mode=True, ik_method="dls"),
-        #     scale=0.05,
-        #     body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=[0.0, 0.0, 0.135]),
-        # )
         self.actions.arm_action = JointPositionActionCfg(
             asset_name="robot",
             joint_names=[
@@ -67,12 +62,7 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
                 "wrist_3_joint",
             ],
         )
-        # self.actions.gripper_action = BinaryJointPositionActionCfg(
-        #     asset_name="robot",
-        #     joint_names=["finger_joint"],
-        #     open_command_expr={"finger_joint": 0.8},
-        #     close_command_expr={"finger_joint": 0.0},
-        # )
+       
         self.actions.gripper_action = BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=[
@@ -96,12 +86,30 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
         self.commands.object_pose.debug_vis = False
 
         # Set Cube as object
+        # self.scene.object = RigidObjectCfg(
+        #     prim_path="{ENV_REGEX_NS}/Object",
+        #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.01], rot=[0.70711, -0.70711, 0.0, 0.0]),
+        #     spawn=UsdFileCfg(
+        #         usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
+        #         scale=(0.8, 0.8, 0.8),
+        #         rigid_props=RigidBodyPropertiesCfg(
+        #             solver_position_iteration_count=16,
+        #             solver_velocity_iteration_count=1,
+        #             max_angular_velocity=1000.0,
+        #             max_linear_velocity=1000.0,
+        #             max_depenetration_velocity=5.0,
+        #             disable_gravity=False,
+        #             kinematic_enabled=False,
+        #         ),
+        #     ),
+        # )
         self.scene.object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.01], rot=[0.70711, -0.70711, 0.0, 0.0]),
-            spawn=UsdFileCfg(
-                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/dex_cube_instanceable.usd",
-                scale=(0.8, 0.8, 0.8),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.05], rot=[1.0, 0.0, 0.0, 0.0]),
+            spawn=MultiUsdFileCfg(
+                usd_path=usd_paths,
+                random_choice=True,       # 关键：每个环境随机选一个
+                scale=(0.8, 0.8, 0.8),    # 统一缩放
                 rigid_props=RigidBodyPropertiesCfg(
                     solver_position_iteration_count=16,
                     solver_velocity_iteration_count=1,
@@ -109,10 +117,25 @@ class UR5eCubeLiftEnvCfg(LiftEnvCfg):
                     max_linear_velocity=1000.0,
                     max_depenetration_velocity=5.0,
                     disable_gravity=False,
-                    kinematic_enabled=False,
                 ),
+                collision_props=CollisionPropertiesCfg(),
             ),
         )
+#         self.scene.object = RigidObjectCfg(
+#             prim_path="{ENV_REGEX_NS}/Object",
+#             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.5, 0, 0.05]),
+#             spawn=sim_utils.CuboidCfg(
+#                 size=(0.05, 0.05, 0.05), # 初始大小
+#                 rigid_props=RigidBodyPropertiesCfg(),
+#                 collision_props=CollisionPropertiesCfg(),
+#                 # 物理材质
+#                 physics_material=sim_utils.RigidBodyMaterialCfg(
+#                     static_friction=1.0, dynamic_friction=1.0
+#                 ),
+#         # 视觉效果
+#         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.8, 0.1, 0.1)),
+#     ),
+# )
         # 设置Cube作为要抓取的物体
         # self.scene.object = RigidObjectCfg(
         #     prim_path="{ENV_REGEX_NS}/Object",

@@ -213,6 +213,104 @@ def cylinder_is_grasped_and_controlled(
 #     return penalty
 # )
 
+def object_relative_zero_momentum_after_lift(
+    env: ManagerBasedRLEnv, 
+    object_cfg: SceneEntityCfg, 
+    robot_cfg: SceneEntityCfg,
+    ee_body_name: str,
+    minimal_height: float, 
+    std: float,
+) -> torch.Tensor:
+    """
+    奖励物体相对于夹爪的线速度接近于零，但仅在物体被举起后生效。
+    
+    参数:
+        ee_body_name (str): 机械臂末端执行器（例如 'gripper_link'）的名称。
+        minimal_height (float): 判定物体被举起的最低高度 (m)。
+        std (float): 负指数函数的标准差，控制奖励的敏感度。
+    """
+    # 提取所需的对象和数据
+    robot: Articulation = env.scene[robot_cfg.name]
+    object: RigidObject = env.scene[object_cfg.name]
+    
+    # 1. 获取 EE 速度
+    # 查找 body 索引，然后访问 body 状态 (Isaac Lab标准做法)
+    ee_idx = robot.find_bodies(ee_body_name)[0][0]
+    ee_vel_w = robot.data.body_state_w[:, ee_idx, 7:10]
+    
+    # 2. 获取物体速度
+    object_vel_w = object.data.root_lin_vel_w
+    
+    # 3. 计算相对速度: v_rel = v_object - v_ee
+    relative_vel = object_vel_w - ee_vel_w
+    
+    # 4. 计算相对速度的平方模长 (L2范数的平方)
+    vel_sq_norm = torch.sum(torch.square(relative_vel), dim=-1)
+    
+    # 5. 负指数奖励
+    reward = torch.exp(-vel_sq_norm / (2 * std**2))
+    
+    # 6. 应用门控：只有在物体被举起后，奖励才生效
+    object_height = object.data.root_pos_w[:, 2]
+    is_lifted = object_height > minimal_height
+    # 使用 .float() 确保类型兼容性
+    reward = reward * is_lifted.float()
+    
+    return reward
+
+def grasp_quality_alignment(
+    env: ManagerBasedRLEnv, 
+    robot_cfg: SceneEntityCfg, 
+    object_cfg: SceneEntityCfg, 
+    ee_body_name: str,
+    distance_threshold: float,
+    std_pos: float, 
+    std_ori: float,
+    minimal_height: float = 0.04,  # 新增：高度判定阈值
+) -> torch.Tensor:
+    """
+    奖励夹爪中心对齐物体中心，并且夹爪的Z轴与物体Z轴对齐。
+    逻辑：仅在物体被举起后激活，作为“抓取质量”的后期评价。
+    """
+    # 提取机器人和物体
+    robot: Articulation = env.scene[robot_cfg.name]
+    object: RigidObject = env.scene[object_cfg.name]
+    
+    # 1. 判定高度：只有物体高度超过 minimal_height 时才给分
+    object_pos_w = object.data.root_pos_w
+    is_lifted = object_pos_w[:, 2] > minimal_height
+    
+    # 获取 EE 索引和姿态
+    ee_idx = robot.find_bodies(ee_body_name)[0][0]
+    ee_pos_w = robot.data.body_pos_w[:, ee_idx]
+    ee_quat_w = robot.data.body_quat_w[:, ee_idx]
+    
+    # --- 位置对齐计算 ---
+    distance_sq_norm = torch.sum(torch.square(object_pos_w - ee_pos_w), dim=-1)
+    reward_pos = torch.exp(-distance_sq_norm / (2 * std_pos**2))
+    
+    # --- 姿态对齐计算 ---
+    object_quat_w = object.data.root_quat_w
+    world_z_axis = torch.tensor([0.0, 0.0, 1.0], device=env.device).repeat(env.num_envs, 1)
+
+    # 提取 Z 轴向量
+    ee_z_axis = quat_apply(ee_quat_w, world_z_axis)
+    object_z_axis = quat_apply(object_quat_w, world_z_axis) 
+
+    # 点积 (cos(theta))
+    dot_product = torch.sum(ee_z_axis * object_z_axis, dim=-1)
+    reward_ori = torch.exp(-torch.square(1.0 - dot_product) / (2 * std_ori**2))
+    
+    # 姿态门控：EE 离物体近才算姿态
+    is_close = distance_sq_norm < distance_threshold**2
+    reward_ori_gated = reward_ori * is_close.float()
+    
+    # 计算总对齐得分
+    total_alignment_reward = reward_pos + reward_ori_gated
+    
+    # [核心修改]：只有 lift 成功后才返回得分，否则返回 0
+    return total_alignment_reward * is_lifted.float()
+
 def reward_predictive_interception(
     env: ManagerBasedRLEnv,
     dt: float,
@@ -251,6 +349,36 @@ def reward_predictive_interception(
     final_reward = torch.where(is_lifted, torch.zeros_like(raw_reward), raw_reward)
 
     return final_reward.view(-1)
+
+def object_ee_pre_distance(
+    env: ManagerBasedRLEnv,
+    std: float,
+    dt: float = 0.1,  # 预判时间步，建议设定在 0.1 - 0.2 之间
+    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """奖励末端执行器接近物体的预测位置（仅在XY平面做速度补偿）。"""
+    
+    # 1. 获取资产
+    object: RigidObject = env.scene[object_cfg.name]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    
+    # 2. 获取当前状态
+    curr_pos_w = object.data.root_pos_w    # (num_envs, 3)
+    curr_vel_w = object.data.root_vel_w[:, 0:3]  # (num_envs, 3)
+    ee_w = ee_frame.data.target_pos_w[..., 0, :] # (num_envs, 3)
+
+    # 3. [核心修改] 仅在 XY 平面进行位置预测
+    # 这样当物体被提起产生 Z 向速度时，目标点不会飞到夹爪上方
+    predict_pos_w = curr_pos_w.clone()
+    predict_pos_w[:, :2] += curr_vel_w[:, :2] * dt 
+
+    # 4. 计算末端到预测位置的欧几里得距离
+    dist = torch.norm(predict_pos_w - ee_w, dim=1)
+
+    # 5. 使用 tanh 核函数映射到 (0, 1]
+    # std 越大，奖励曲线越平缓，容错率越高
+    return 1 - torch.tanh(dist / std)
 
 def reward_velocity_matching(
     env: ManagerBasedRLEnv,

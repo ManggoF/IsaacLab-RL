@@ -244,7 +244,7 @@ class EventCfg:
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.0, 0.0),
+            "speed_range": (0.0, 0.35),  # 物体在传送带上的速度范围 (m/s)
             "threshold_steps": 80,
             # [关键] 设置一个判断“被举起”的高度阈值 (m)
             # 这个值应该比物体在传送带上的高度略高一点
@@ -253,25 +253,31 @@ class EventCfg:
         },
     )
     
-    randomize_object_scale = EventTerm(
-        func=mdp.randomize_rigid_body_scale,
-        mode="usd",
-        params={
-            "asset_cfg": SceneEntityCfg("object"),
-            "scale_range": (0.8, 1.2), # 在 0.8 到 1.2 之间均匀缩放
-        },
-    )
+    # randomize_object_scale = EventTerm(
+    #     func=mdp.randomize_rigid_body_scale,
+    #     mode="usd",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("object"),
+    #         "scale_range": {
+    #         "x": (0.8, 0.8),   # X轴 缩放范围
+    #         "y": (0.8, 0.8),   # Y轴 缩放范围
+    #         "z": (3.0, 3.0),   # Z轴 显著拉长，使其变为长方体
+    #         },
+    #         "relative_child_path": None, # 修改为 None，确保缩放根节点从而同步碰撞体
+    #     },
+    # )
 
 
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
 
-    reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=5.0)  ## .25
+    # reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=5.0)  ## .25
+    reaching_object = RewTerm(func=mdp.object_ee_pre_distance, params={"std": 0.12, "dt": 0.15}, weight=5.0)
     
     grasping_cylinder = RewTerm(
     func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
-    weight=50.0,
+    weight=30.0,# 50，不收敛
     params={
         "robot_cfg": SceneEntityCfg("robot"),
         "object_cfg": SceneEntityCfg("object"),
@@ -295,15 +301,40 @@ class RewardsCfg:
     },
 )
 
-    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=100.0)  #cube0.04/cylinder0.03
+    lifting_object = RewTerm(func=mdp.object_is_lifted, params={"minimal_height": 0.04}, weight=15.0)  #cube0.04/cylinder0.03
 
 # --- [新增] 论文中的两个动态抓取奖励 ---
+    # 1. 动量奖励 (修正版：奖励相对零动量)
+    object_relative_zero_momentum = RewTerm(
+        func=mdp.object_relative_zero_momentum_after_lift, 
+        # 权重可以设置得非常高，因为这是稳定抓取的关键
+        weight=40.0, 
+        params={
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object"),
+            "ee_body_name": "gripper_link",  # 确认您的 EE Link 名称
+            "minimal_height": 0.04,          # 仅在举起高于此高度后生效
+            "std": 0.03,                     # 相对速度敏感度 (惩罚高于 3 cm/s 的相对速度)
+        }
+    )
 
-    # 1. 预测拦截奖励 (Predictive Interception Reward)
-    # 作用：鼓励机器人去抓物体 "0.2秒后" 会出现的位置，而不是当前位置
+    # # 2. 抓取质量对齐奖励 (继续使用，以保证抓取位置和姿态)
+    rasp_alignment = RewTerm(
+        func=mdp.grasp_quality_alignment,
+        weight=15.0, # 既然变成了后期奖励，权重可以稍微给高一点
+        params={
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object"),
+            "ee_body_name": "gripper_link", 
+            "distance_threshold": 0.05,
+            "std_pos": 0.03,            
+            "std_ori": 0.1,
+            "minimal_height": 0.04, # 关键：与 lifting_object 阈值对齐
+        }
+    )
     # predictive_interception = RewTerm(
     #     func=mdp.reward_predictive_interception, # 请确保导入了这个函数
-    #     weight=1.0, # 权重 w_p
+    #     weight=10.0, # 权重 w_p
     #     params={
     #         "robot_cfg": SceneEntityCfg("robot"),
     #         "object_cfg": SceneEntityCfg("object"),
@@ -315,25 +346,6 @@ class RewardsCfg:
             
     #         # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
     #         "alpha": 10.0, 
-    #     }
-    # )
-
-    # # # 2. 速度匹配奖励 (Velocity Matching Reward)
-    # # # 作用：鼓励机器人在接触物体前，速度与物体保持一致
-    # velocity_matching = RewTerm(
-    #     func=mdp.reward_velocity_matching, # 请确保导入了这个函数
-    #     weight=1.0, # 权重 w_v
-    #     params={
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "ee_body_name": "gripper_link", # 同上，请确认 Link 名称
-            
-    #         # [参数] beta: 对速度误差的敏感度
-    #         "beta": 10.0,
-            
-    #         # [参数] direction_axis: 如果传送带只沿 X 轴运动，可以填 "x"。
-    #         # 填 None 则匹配整个 3D 速度向量（推荐先填 None 以保证鲁棒性）
-    #         "direction_axis": None, 
     #     }
     # )
     object_goal_tracking = RewTerm(
@@ -394,18 +406,39 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    fade_out_lifting_reward = CurrTerm(
-        func=mdp.modify_reward_weight_linearly, # <<--- 使用我们新的平滑函数
-        params={
-            "term_name": "lifting_object",
-            "start_weight":100.0,  # 衰减前的权重
-            "end_weight": 15.0,     # 衰减后的权重
-            # 定义衰减过程的起止步数
-            # 总步数约75000(iteration=103时，step=2500 )
-            "start_step": 15000,
-            "end_step": 40000,
-        }
-    )
+    # fade_out_lifting_reward = CurrTerm(
+    #     func=mdp.modify_reward_weight_linearly, # <<--- 使用我们新的平滑函数
+    #     params={
+    #         "term_name": "lifting_object",
+    #         "start_weight":100.0,  # 衰减前的权重
+    #         "end_weight": 15.0,     # 衰减后的权重
+    #         # 定义衰减过程的起止步数
+    #         # 总步数约75000(iteration=103时，step=2500 )
+    #         "start_step": 15000,
+    #         "end_step": 40000,
+    #     }
+    # )
+
+    # object_speed_curriculum = CurrTerm(
+    #     # 使用你提供的通用修改类
+    #     func=mdp.modify_term_cfg, 
+    #     params={
+    #         # [关键] 这里是你要修改的参数的"地址"
+    #         # 格式: events.{事件名}.params.{参数名}
+    #         "address": "events.move_object_smartly.params.speed_range",
+            
+    #         # 指定我们刚才写的计算逻辑函数
+    #         "modify_fn": mdp.linear_interpolation_speed,
+            
+    #         # 传入计算函数需要的参数
+    #         "modify_params": {
+    #             "start_speed": 0.0,    # 初始0.0m/s
+    #             "end_speed": 0.3,      # 最终速度
+    #             "start_step": 24000,    # 第 24000 步开始动，即第1000 interation
+    #             "end_step": 48000,     # 第 48000 步达到最快, 即第2000 iteration
+    #         }
+    #     }
+    # )
 
     target_tracking_reward = CurrTerm(
         func=mdp.modify_reward_weight_linearly,
@@ -462,7 +495,7 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
 
     # Scene settings
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5,replicate_physics=False)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
@@ -481,9 +514,9 @@ class LiftEnvCfg(ManagerBasedRLEnvCfg):
         # simulation settings
         self.sim.dt = 0.01  # 100Hz
         self.sim.render_interval = self.decimation
-
         # self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
         self.sim.physx.friction_correlation_distance = 0.00625
+        

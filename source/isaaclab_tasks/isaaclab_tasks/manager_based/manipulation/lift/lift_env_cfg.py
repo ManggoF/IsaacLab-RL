@@ -51,46 +51,6 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     # target object: will be populated by agent env cfg
     object: RigidObjectCfg | DeformableObjectCfg = MISSING
 
-    # Table
-    # table = AssetBaseCfg(
-    #     prim_path="{ENV_REGEX_NS}/Table",
-    #     init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0, 0], rot=[0.707, 0, 0, 0.707]),
-    #     spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
-    # )
-
-    # # plane
-    # plane = AssetBaseCfg(
-    #     prim_path="/World/GroundPlane",
-    #     init_state=AssetBaseCfg.InitialStateCfg(pos=[0, 0, -1.05]),
-    #     spawn=GroundPlaneCfg(),
-    # )
-
-    # # lights
-    # light = AssetBaseCfg(
-    #     prim_path="/World/light",
-    #     spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
-    # )
-    # 为每一个环境创建一个独立的、看不见的、光滑的刚体盒子
-    # conveyor_surface = RigidObjectCfg(
-    #     # 关键1: 使用 {ENV_REGEX_NS}，确保每个环境都有自己的传送带
-    #     prim_path="{ENV_REGEX_NS}/ConveyorSurface",
-        
-    #     # 关键2: 使用 RigidObjectCfg 专属的 InitialStateCfg
-    #     init_state=RigidObjectCfg.InitialStateCfg(pos=[0.7, 0, 0.0],lin_vel=[0.0, 0.0, 0.0],), 
-    #     spawn=CuboidCfg(
-    #         size=(1, 1, 0.01),
-    #         rigid_props=RigidBodyPropertiesCfg(kinematic_enabled=False,disable_gravity=True),
-    #         mass_props=MassPropertiesCfg(mass=100.0),
-    #         collision_props=CollisionPropertiesCfg(collision_enabled=True),
-    #         physics_material=RigidBodyMaterialCfg(
-    #             static_friction=0.8,
-    #             dynamic_friction=0.5,
-    #             restitution=0.0,
-    #         ),
-    #         # 关键3: 使用唯一正确的 "visible" 参数来实现隐形
-    #         visible=True,
-    #     ),
-    # )
     # -- 定义传送带平面 --
     conveyor_surface = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/ConveyorSurface",
@@ -305,18 +265,18 @@ class RewardsCfg:
 
 # --- [新增] 论文中的两个动态抓取奖励 ---
     # 1. 动量奖励 (修正版：奖励相对零动量)
-    object_relative_zero_momentum = RewTerm(
-        func=mdp.object_relative_zero_momentum_after_lift, 
-        # 权重可以设置得非常高，因为这是稳定抓取的关键
-        weight=40.0, 
-        params={
-            "robot_cfg": SceneEntityCfg("robot"),
-            "object_cfg": SceneEntityCfg("object"),
-            "ee_body_name": "gripper_link",  # 确认您的 EE Link 名称
-            "minimal_height": 0.04,          # 仅在举起高于此高度后生效
-            "std": 0.03,                     # 相对速度敏感度 (惩罚高于 3 cm/s 的相对速度)
-        }
-    )
+    # object_relative_zero_momentum = RewTerm(
+    #     func=mdp.object_relative_zero_momentum_after_lift, 
+    #     # 权重可以设置得非常高，因为这是稳定抓取的关键
+    #     weight=40.0, 
+    #     params={
+    #         "robot_cfg": SceneEntityCfg("robot"),
+    #         "object_cfg": SceneEntityCfg("object"),
+    #         "ee_body_name": "gripper_link",  # 确认您的 EE Link 名称
+    #         "minimal_height": 0.04,          # 仅在举起高于此高度后生效
+    #         "std": 0.03,                     # 相对速度敏感度 (惩罚高于 3 cm/s 的相对速度)
+    #     }
+    # )
 
     # # 2. 抓取质量对齐奖励 (继续使用，以保证抓取位置和姿态)
     rasp_alignment = RewTerm(
@@ -327,27 +287,12 @@ class RewardsCfg:
             "object_cfg": SceneEntityCfg("object"),
             "ee_body_name": "gripper_link", 
             "distance_threshold": 0.05,
-            "std_pos": 0.03,            
-            "std_ori": 0.1,
+            "std_pos": 0.2,            
+            "std_ori": 0.3,
             "minimal_height": 0.04, # 关键：与 lifting_object 阈值对齐
         }
     )
-    # predictive_interception = RewTerm(
-    #     func=mdp.reward_predictive_interception, # 请确保导入了这个函数
-    #     weight=10.0, # 权重 w_p
-    #     params={
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         # [设置] 您的末端执行器Link名称，通常是夹爪中心或法兰盘
-    #         "ee_body_name": "gripper_link",
-            
-    #         # [参数] dt: 预判时间窗口。如果传送带很快，这个值可以大一点 (e.g., 0.2 - 0.5)
-    #         "dt": 0.1, 
-            
-    #         # [参数] alpha: 对位置误差的敏感度。值越大，要求越精准
-    #         "alpha": 10.0, 
-    #     }
-    # )
+    
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
         params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},

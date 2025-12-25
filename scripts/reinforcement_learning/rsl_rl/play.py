@@ -171,15 +171,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     fig.suptitle("Real-time Joint Positions", fontsize=16)
 
     # --- 配置机械臂子图 ---
-    ax_arm.set_title(f"Arm Joints (Indices 0-5)")
-    ax_arm.set_ylabel("Position (rad)")
-    arm_lines = [ax_arm.plot([], [], label=f'Arm J{i+1}')[0] for i in range(ARM_DIM)]
+    ax_arm.set_title(f"Manipulator")
+    ax_arm.set_ylabel("Joint Angle (rad)")
+    arm_lines = [ax_arm.plot([], [], label=f'Joint{i+1}')[0] for i in range(ARM_DIM)]
     ax_arm.legend(loc='upper right', fontsize='small', ncol=3)
     ax_arm.grid(True)
 
     # --- 配置夹爪子图 ---
-    ax_gripper.set_title(f"Gripper Main Joint (Index 6)")
-    ax_gripper.set_ylabel("Position (rad)")
+    ax_gripper.set_title(f"Gripper")
+    ax_gripper.set_ylabel("Joint Angle (rad)")
     ax_gripper.set_xlabel("Time Steps")
     gripper_lines = [ax_gripper.plot([], [], label=f'Gripper', color='orange')[0] for i in range(GRIPPER_DIM)]
     ax_gripper.legend(loc='upper right')

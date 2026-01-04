@@ -164,67 +164,36 @@ class EventCfg:
         params={
             "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
-            "asset_cfg": SceneEntityCfg("object", body_names="Object"),  # 修改为圆柱体
+            "asset_cfg": SceneEntityCfg("object", body_names="Object"),  
         },
     )
 
-    # reset_object_once_if_lifted = EventTerm(
-    #     func=mdp.reset_object_after_lift, 
-    #     mode="interval",
-    #     interval_range_s=(0.02, 0.02),
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("object"),
-    #         "lift_height_threshold": 0.04, 
-    #         # 【关键修改】：在这里定义每个轴的随机偏移范围 [min, max]
-    #         "reset_offset_w_range": {
-    #             # X轴：在 -1 cm 到 +1 cm 之间随机偏移
-    #             "x": (-0.05, 0.05), 
-    #             # Y轴：在 -1 cm 到 +1 cm 之间随机偏移
-    #             "y": (-0.05, 0.05), 
-    #             # Z轴：在 -5 cm 到 -2 cm 之间随机偏移 (保证向下移动)
-    #             "z": (-0.03, -0.03),
-    #         },
-    #     },
-    # )
-    # clear_reset_flag_on_env_reset = EventTerm(
-    # # 指向新的清除函数
-    #     func=mdp.clear_object_reset_flag, 
-    #     # 关键：设置为 "reset" 模式，确保它在环境重置时被调用
-    #     mode="reset", 
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("object"),
-    #     }
-    # )
-
     move_object_smartly = EventTerm(
-        func=mdp.move_object_unless_lifted, # <<--- 使用新的、基于高度的函数
+        func=mdp.move_object,
         mode="interval",
-        # 为了每一步都执行，将最小和最大间隔都设置为环境的步长时间
-        # 假设你的 sim.dt=0.01, decimation=2, 那么 env.step_dt = 0.02
         interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("object"),
-            "speed_range": (0.0, 0.35),  # 物体在传送带上的速度范围 (m/s)
-            "threshold_steps": 80,
-            # [关键] 设置一个判断“被举起”的高度阈值 (m)
-            # 这个值应该比物体在传送带上的高度略高一点
-            # 例如，如果物体在传送带上时高度是0.03m
+            "speed_range": (0.0, 0.0),  # 物体在传送带上的速度范围 (m/s)
             "lift_height_threshold": 0.04, 
         },
     )
-    
-    # randomize_object_scale = EventTerm(
-    #     func=mdp.randomize_rigid_body_scale,
-    #     mode="usd",
+
+    # [新增] 实时扰动实验：物体运动到 Y=0.0 时，随机跳变 3-5 厘米
+    # object_perturbation = EventTerm(
+    #     func=mdp.perturb_object_position,
+    #     mode="interval",
+    #     interval_range_s=(0.02, 0.02), # 每步检查
     #     params={
     #         "asset_cfg": SceneEntityCfg("object"),
-    #         "scale_range": {
-    #         "x": (0.8, 0.8),   # X轴 缩放范围
-    #         "y": (0.8, 0.8),   # Y轴 缩放范围
-    #         "z": (3.0, 3.0),   # Z轴 显著拉长，使其变为长方体
-    #         },
-    #         "relative_child_path": None, # 修改为 None，确保缩放根节点从而同步碰撞体
+    #         "trigger_y_threshold": 0.1,    # 物体走到底座中心位置时触发
+    #         "offset_range": (-0.05, 0.05), # 随机跳变
     #     },
+    # )
+
+    # clear_perturb_flag = EventTerm(
+    #     func=mdp.clear_perturb_flag_fn, # 把 env._object_perturbed 设为 False 的函数
+    #     mode="reset"
     # )
 
 
@@ -235,9 +204,9 @@ class RewardsCfg:
     # reaching_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.12}, weight=5.0)  ## .25
     reaching_object = RewTerm(func=mdp.object_ee_pre_distance, params={"std": 0.12, "dt": 0.15}, weight=5.0)
     
-    grasping_cylinder = RewTerm(
-    func=mdp.cylinder_is_grasped_and_controlled, # <<--- 使用最终的、无懈可击的函数
-    weight=30.0,# 50，不收敛
+    grasp = RewTerm(
+    func=mdp.grasped_and_controlled,
+    weight=30.0,
     params={
         "robot_cfg": SceneEntityCfg("robot"),
         "object_cfg": SceneEntityCfg("object"),
@@ -265,30 +234,30 @@ class RewardsCfg:
 
 # --- [新增] 论文中的两个动态抓取奖励 ---
     # 1. 动量奖励 (修正版：奖励相对零动量)
-    # object_relative_zero_momentum = RewTerm(
-    #     func=mdp.object_relative_zero_momentum_after_lift, 
-    #     # 权重可以设置得非常高，因为这是稳定抓取的关键
-    #     weight=40.0, 
-    #     params={
-    #         "robot_cfg": SceneEntityCfg("robot"),
-    #         "object_cfg": SceneEntityCfg("object"),
-    #         "ee_body_name": "gripper_link",  # 确认您的 EE Link 名称
-    #         "minimal_height": 0.04,          # 仅在举起高于此高度后生效
-    #         "std": 0.03,                     # 相对速度敏感度 (惩罚高于 3 cm/s 的相对速度)
-    #     }
-    # )
+    object_relative_zero_momentum = RewTerm(
+        func=mdp.object_relative_zero_momentum_after_lift, 
+        # 权重可以设置得非常高，因为这是稳定抓取的关键
+        weight=30.0, 
+        params={
+            "robot_cfg": SceneEntityCfg("robot"),
+            "object_cfg": SceneEntityCfg("object"),
+            "ee_body_name": "gripper_link",  # 确认您的 EE Link 名称
+            "minimal_height": 0.04,          # 仅在举起高于此高度后生效
+            "std": 0.03,                     # 相对速度敏感度 (惩罚高于 1 cm/s 的相对速度)
+        }
+    )
 
-    # # 2. 抓取质量对齐奖励 (继续使用，以保证抓取位置和姿态)
-    rasp_alignment = RewTerm(
+    # # # # 2. 抓取质量对齐奖励 (继续使用，以保证抓取位置和姿态)
+    grasp_alignment = RewTerm(
         func=mdp.grasp_quality_alignment,
-        weight=15.0, # 既然变成了后期奖励，权重可以稍微给高一点
+        weight=30.0, 
         params={
             "robot_cfg": SceneEntityCfg("robot"),
             "object_cfg": SceneEntityCfg("object"),
             "ee_body_name": "gripper_link", 
             "distance_threshold": 0.05,
-            "std_pos": 0.2,            
-            "std_ori": 0.3,
+            "std_pos": 0.1,            
+            "std_ori": 0.1,
             "minimal_height": 0.04, # 关键：与 lifting_object 阈值对齐
         }
     )
@@ -296,7 +265,7 @@ class RewardsCfg:
     object_goal_tracking = RewTerm(
         func=mdp.object_goal_distance,
         params={"std": 0.3, "minimal_height": 0.04, "command_name": "object_pose"},
-        weight=16.0,
+        weight=15.0,
     )
 
     object_goal_tracking_fine_grained = RewTerm(

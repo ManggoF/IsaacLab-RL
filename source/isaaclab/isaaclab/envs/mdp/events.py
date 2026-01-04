@@ -1135,6 +1135,117 @@ def reset_object_after_lift(
         # -- 4. 标记已重置
         env._object_reset_triggered[envs_to_reset_mask] = True
 
+def move_object(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    *,
+    asset_cfg: SceneEntityCfg,
+    speed_range: tuple[float, float],
+    lift_height_threshold: float,
+):
+    """
+    使物体保持单向运动，但如果高度超过阈值（被举起），则停止运动。
+    """
+    # -- 1. 仅在第一次调用时初始化速度 (不再需要计数器)
+    if not hasattr(env, "_constant_move_speed"):
+        low, high = speed_range
+        # 为所有环境预先生成一个随机的初始速度
+        env._constant_move_speed = torch.empty(env.num_envs, device=env.device).uniform_(low, high)
+
+    # -- 2. 获取物体当前状态
+    obj: RigidObject = env.scene[asset_cfg.name]
+    object_heights = obj.data.root_pos_w[:, 2]
+    is_lifted = object_heights > lift_height_threshold
+
+    # -- 3. 构建完整的速度张量 (包含所有环境)
+    # 获取当前所有物体的线速度和角速度
+    current_lin_vel = obj.data.root_lin_vel_w.clone()
+    current_ang_vel = obj.data.root_ang_vel_w.clone()
+
+    # -- 4. 应用运动逻辑
+    # 对于未被举起的环境：Y轴保持初始设定的单向速度
+    not_lifted_mask = ~is_lifted
+    current_lin_vel[not_lifted_mask, 1] = env._constant_move_speed[not_lifted_mask]
+    
+    # 对于已被举起的环境：Y轴速度清零（防止在空中继续滑行）
+    current_lin_vel[is_lifted, 1] = 0.0
+    
+    # -- 5. 写入仿真器
+    # 组合线速度 (x, y, z) 和 角速度 (wx, wy, wz)
+    new_velocities = torch.cat([current_lin_vel, current_ang_vel], dim=1)
+    obj.write_root_velocity_to_sim(new_velocities)
+
+def perturb_object_position(
+    env: ManagerBasedRLEnv, 
+    env_ids: torch.Tensor, 
+    asset_cfg: SceneEntityCfg, 
+    trigger_y_threshold: float, 
+    offset_range: tuple[float, float]
+):
+    """
+    使用局部坐标判断触发条件，但使用世界坐标写回仿真器。
+    """
+    obj: RigidObject = env.scene[asset_cfg.name]
+    
+    # 1. 获取当前所有环境在世界系下的位姿
+    # root_pos_w 的形状是 (len(env_ids), 3)
+    current_pos_w = obj.data.root_pos_w[env_ids].clone()
+    current_quat_w = obj.data.root_quat_w[env_ids].clone()
+    
+    # 2. 获取这些环境的原点 (World Frame 中的位置)
+    env_origins = env.scene.env_origins[env_ids]
+    
+    # 3. 计算物体相对于环境原点的局部坐标 (Local Position)
+    # 这一步消除了环境平铺带来的偏移
+    local_pos = current_pos_w - env_origins
+    
+    # 初始化标记位
+    if not hasattr(env, "_object_perturbed"):
+        env._object_perturbed = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    # 4. 【关键修改】使用局部坐标判断是否超过 Y 轴阈值
+    mask = (local_pos[:, 1] > trigger_y_threshold) & (~env._object_perturbed[env_ids])
+    
+    if torch.any(mask):
+        selected_env_ids = env_ids[mask]
+        
+        # 计算随机偏移 (例如在 X 轴深度方向跳变)
+        low, high = offset_range
+        random_offset_x = torch.empty(len(selected_env_ids), device=env.device).uniform_(low, high)
+        
+        # 5. 应用偏移。注意：在世界坐标上直接加 offset 是安全的，
+        # 因为它是一个相对位移 (Delta)，不改变环境间的相对关系。
+        current_pos_w[mask, 0] += random_offset_x
+        
+        # 6. 写回仿真器。注意：Isaac Lab 的 API 必须接收世界坐标
+        # 构造 13 维状态: [pos(3), quat(4), lin_vel(3), ang_vel(3)]
+        new_state = torch.cat([
+            current_pos_w, 
+            current_quat_w, 
+            obj.data.root_lin_vel_w[env_ids], 
+            obj.data.root_ang_vel_w[env_ids]
+        ], dim=-1)
+        
+        # 只针对当前处理的 env_ids 进行写回
+        obj.write_root_state_to_sim(new_state, env_ids=env_ids)
+        
+        # 标记已跳变
+        env._object_perturbed[selected_env_ids] = True
+
+    # 在环境重置时，重置标记位
+    # 这部分逻辑通常放在 reset_scene_to_default 相关的 event 里
+
+def clear_perturb_flag_fn(env: ManagerBasedRLEnv, env_ids: torch.Tensor):
+    """
+    在环境重置时，将扰动标记位设为 False。
+    """
+    # 如果属性还没初始化（例如第一次启动时），先初始化它
+    if not hasattr(env, "_object_perturbed"):
+        env._object_perturbed = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    
+    # 仅针对正在重置的环境 ID，将标记位清空
+    env._object_perturbed[env_ids] = False
+
 def clear_object_reset_flag(
     env: ManagerBasedRLEnv,
     env_ids: torch.Tensor,

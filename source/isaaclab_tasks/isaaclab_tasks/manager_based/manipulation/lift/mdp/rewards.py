@@ -114,7 +114,7 @@ def object_goal_distance(
 
 #     return penalty
 
-def cylinder_is_grasped_and_controlled(
+def grasped_and_controlled(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg,
     object_cfg: SceneEntityCfg,
@@ -286,6 +286,10 @@ def grasp_quality_alignment(
     ee_quat_w = robot.data.body_quat_w[:, ee_idx]
     
     # --- 位置对齐计算 ---
+    # 计算实际欧氏距离 (用于打印)
+    dist_vec = object_pos_w - ee_pos_w
+    distance = torch.norm(dist_vec, dim=-1)
+
     distance_sq_norm = torch.sum(torch.square(object_pos_w - ee_pos_w), dim=-1)
     reward_pos = torch.exp(-distance_sq_norm / (2 * std_pos**2))
     
@@ -300,6 +304,10 @@ def grasp_quality_alignment(
     # 点积 (cos(theta))
     dot_product = torch.sum(ee_z_axis * object_z_axis, dim=-1)
     reward_ori = torch.exp(-torch.square(1.0 - dot_product) / (2 * std_ori**2))
+
+    # 计算实际夹角角度 (用于打印)
+    angle_rad = torch.acos(torch.clamp(dot_product, -1.0, 1.0))
+    angle_deg = torch.rad2deg(angle_rad)
     
     # 姿态门控：EE 离物体近才算姿态
     is_close = distance_sq_norm < distance_threshold**2
@@ -307,6 +315,24 @@ def grasp_quality_alignment(
     
     # 计算总对齐得分
     total_alignment_reward = reward_pos + reward_ori_gated
+
+    # --- [新增] 调试打印逻辑 ---
+    if env.common_step_counter % 50 == 0:  # 每 50 步打印一次
+        print(f"\n>>> [Grasp Debug] Step: {env.common_step_counter} " + "="*30)
+        
+        # 遍历前 5 个环境 (如果环境总数少于 5，则取最小值)
+        num_to_print = min(5, env.num_envs)
+        for i in range(num_to_print):
+            d = distance[i].item()
+            a = angle_deg[i].item()
+            h = object_pos_w[i, 2].item()
+            lifted = is_lifted[i].item()
+            
+            # 格式化打印：使用 env 编号区分
+            status = "LIFTED" if lifted else "GROUND"
+            print(f"  Env {i} | {status} | Dist: {d:.4f}m | Angle: {a:6.2f}° | Height: {h:.4f}m")
+        
+        print("="*55)
     
     # [核心修改]：只有 lift 成功后才返回得分，否则返回 0
     return total_alignment_reward * is_lifted.float()
